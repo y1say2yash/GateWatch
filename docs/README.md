@@ -17,19 +17,19 @@
 
 ### 🔵 Phase 2 — System Specification
 
-**Progress:** `0 / 5`
+**Progress:** `5 / 5`
 
-- [ ] 04 — Functional Requirements
-- [ ] 05 — System Design
-- [ ] 06 — Data Model
-- [ ] 07 — API Design
-- [ ] 08 — User Flows
+- [x] 04 — Functional Requirements
+- [x] 05 — System Design
+- [x] 06 — Data Model
+- [x] 07 — API Design
+- [x] 08 — User Flows
 
 ### 🟡 Phase 3 — Engineering Documentation
 
-**Progress:** `0 / 5`
+**Progress:** `1 / 5`
 
-- [ ] 09 — Development Guide
+- [x] 09 — Development Guide
 - [ ] 10 — Security
 - [ ] 11 — Testing Strategy
 - [ ] 12 — Deployment
