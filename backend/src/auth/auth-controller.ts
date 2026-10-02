@@ -1,14 +1,17 @@
 import type { Request, Response } from 'express';
 
 import {
-    authConfig,
     authenticateWithGitHub,
     buildGitHubAuthorizationUrl,
     createOAuthState,
-    getUserFromSession,
-    revokeSession,
     validateOAuthState,
 } from './auth-service.js';
+import {
+    getAuthenticatedUser,
+    revokeSession,
+    SESSION_COOKIE_NAME,
+    SESSION_TTL_SECONDS,
+} from './session-service.js';
 import { validateOAuthCallback } from './auth-validation.js';
 
 export async function githubLogin(
@@ -65,11 +68,11 @@ export async function githubCallback(
             code as string,
         );
 
-        response.cookie(authConfig.sessionCookieName, sessionToken, {
+        response.cookie(SESSION_COOKIE_NAME, sessionToken, {
             httpOnly: true,
             secure: process.env.NODE_ENV === 'production',
             sameSite: 'lax',
-            maxAge: authConfig.sessionTtlSeconds * 1000,
+            maxAge: SESSION_TTL_SECONDS * 1000,
             path: '/',
         });
 
@@ -94,7 +97,7 @@ export async function getCurrentUser(
     response: Response,
 ): Promise<void> {
     try {
-        const sessionToken = request.cookies?.[authConfig.sessionCookieName];
+        const sessionToken = request.cookies?.[SESSION_COOKIE_NAME];
 
         if (!sessionToken) {
             response.status(401).json({
@@ -107,7 +110,7 @@ export async function getCurrentUser(
             return;
         }
 
-        const user = await getUserFromSession(sessionToken);
+        const user = await getAuthenticatedUser(sessionToken);
 
         if (!user) {
             response.status(401).json({
@@ -140,13 +143,13 @@ export async function logout(
     response: Response,
 ): Promise<void> {
     try {
-        const sessionToken = request.cookies?.[authConfig.sessionCookieName];
+        const sessionToken = request.cookies?.[SESSION_COOKIE_NAME];
 
         if (sessionToken) {
             await revokeSession(sessionToken);
         }
 
-        response.clearCookie(authConfig.sessionCookieName, {
+        response.clearCookie(SESSION_COOKIE_NAME, {
             httpOnly: true,
             secure: process.env.NODE_ENV === 'production',
             sameSite: 'lax',

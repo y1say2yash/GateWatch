@@ -7,17 +7,16 @@ import type {
     GitHubEmail,
     GitHubUser,
 } from './auth-types.js';
+import { SESSION_TTL_SECONDS } from './session-service.js';
 
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID;
 const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET;
+
 const GITHUB_REDIRECT_URI =
     process.env.GITHUB_REDIRECT_URI ??
     'http://localhost/api/v1/auth/github/callback';
 
-const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
 const OAUTH_STATE_TTL_SECONDS = 60 * 10;
-
-const SESSION_COOKIE_NAME = 'gatewatch_session';
 
 function requireGitHubConfig(): void {
     if (!GITHUB_CLIENT_ID || !GITHUB_CLIENT_SECRET) {
@@ -55,14 +54,6 @@ function mapUser(row: {
         status: row.status,
         isAdmin: row.is_admin,
     };
-}
-
-export function getGitHubAuthorizationUrl(): string {
-    requireGitHubConfig();
-
-    const state = generateOAuthState();
-
-    return state;
 }
 
 export async function createOAuthState(): Promise<string> {
@@ -106,19 +97,22 @@ export function buildGitHubAuthorizationUrl(state: string): string {
 async function exchangeCodeForAccessToken(code: string): Promise<string> {
     requireGitHubConfig();
 
-    const response = await fetch('https://github.com/login/oauth/access_token', {
-        method: 'POST',
-        headers: {
-            Accept: 'application/json',
-            'Content-Type': 'application/json',
+    const response = await fetch(
+        'https://github.com/login/oauth/access_token',
+        {
+            method: 'POST',
+            headers: {
+                Accept: 'application/json',
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                client_id: GITHUB_CLIENT_ID,
+                client_secret: GITHUB_CLIENT_SECRET,
+                code,
+                redirect_uri: GITHUB_REDIRECT_URI,
+            }),
         },
-        body: JSON.stringify({
-            client_id: GITHUB_CLIENT_ID,
-            client_secret: GITHUB_CLIENT_SECRET,
-            code,
-            redirect_uri: GITHUB_REDIRECT_URI,
-        }),
-    });
+    );
 
     if (!response.ok) {
         throw new Error(
@@ -128,8 +122,6 @@ async function exchangeCodeForAccessToken(code: string): Promise<string> {
 
     const data = (await response.json()) as {
         access_token?: string;
-        token_type?: string;
-        scope?: string;
         error?: string;
         error_description?: string;
     };
@@ -145,7 +137,9 @@ async function exchangeCodeForAccessToken(code: string): Promise<string> {
     return data.access_token;
 }
 
-async function fetchGitHubUser(accessToken: string): Promise<GitHubUser> {
+async function fetchGitHubUser(
+    accessToken: string,
+): Promise<GitHubUser> {
     const response = await fetch('https://api.github.com/user', {
         headers: {
             Accept: 'application/vnd.github+json',
@@ -310,71 +304,3 @@ export async function authenticateWithGitHub(
         sessionToken,
     };
 }
-
-export async function getUserFromSession(
-    sessionToken: string,
-): Promise<AuthenticatedUser | null> {
-    const tokenHash = hashSessionToken(sessionToken);
-
-    const row = await database('sessions')
-        .join('users', 'users.id', 'sessions.user_id')
-        .select(
-            'sessions.id as session_id',
-            'sessions.expires_at',
-            'sessions.revoked_at',
-            'users.id',
-            'users.github_id',
-            'users.github_username',
-            'users.email',
-            'users.avatar_url',
-            'users.status',
-            'users.is_admin',
-            'users.deleted_at',
-        )
-        .where('sessions.token_hash', tokenHash)
-        .first();
-
-    if (!row) {
-        return null;
-    }
-
-    if (row.revoked_at) {
-        return null;
-    }
-
-    if (new Date(row.expires_at).getTime() <= Date.now()) {
-        await database('sessions')
-            .where('id', row.session_id)
-            .update({
-                revoked_at: database.fn.now(),
-            });
-
-        return null;
-    }
-
-    if (row.deleted_at) {
-        return null;
-    }
-
-    if (row.status !== 'ACTIVE') {
-        return null;
-    }
-
-    return mapUser(row);
-}
-
-export async function revokeSession(sessionToken: string): Promise<void> {
-    const tokenHash = hashSessionToken(sessionToken);
-
-    await database('sessions')
-        .where('token_hash', tokenHash)
-        .whereNull('revoked_at')
-        .update({
-            revoked_at: database.fn.now(),
-        });
-}
-
-export const authConfig = {
-    sessionCookieName: SESSION_COOKIE_NAME,
-    sessionTtlSeconds: SESSION_TTL_SECONDS,
-};

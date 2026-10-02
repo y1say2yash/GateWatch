@@ -21,7 +21,3 @@ export interface AuthenticatedUser {
     status: 'ACTIVE' | 'DELETED' | 'ADMIN_DISABLED';
     isAdmin: boolean;
 }
-
-export interface AuthenticatedRequest {
-    user: AuthenticatedUser;
-}
