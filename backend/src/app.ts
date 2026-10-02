@@ -1,10 +1,18 @@
 import express from 'express';
+import cookieParser from 'cookie-parser';
+
 import database from './config/database.js';
 import redis from './config/redis.js';
+import authRoutes from './auth/auth-routes.js';
+import userRoutes from './users/user-routes.js';
 
 const app = express();
 
 app.use(express.json());
+app.use(cookieParser());
+
+app.use('/api/v1/auth', authRoutes);
+app.use('/api/v1/users', userRoutes);
 
 app.get('/api/health', async (_req, res) => {
     const dependencies = {
