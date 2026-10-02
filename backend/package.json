@@ -10,7 +10,10 @@
     "start": "node dist/server.js"
   },
   "dependencies": {
-    "express": "^5.2.1"
+    "express": "^5.2.1",
+    "knex": "^3.3.0",
+    "pg": "^8.23.1",
+    "redis": "^6.3.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
