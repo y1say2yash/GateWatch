@@ -28,6 +28,7 @@ export async function up(knex: Knex): Promise<void> {
         table.bigInteger('github_id').notNullable().unique();
         table.string('github_username', 255).notNullable().unique();
         table.string('email', 320).unique();
+        table.string('avatar_url', 2048).nullable();
         table.specificType('status', 'user_status').notNullable().defaultTo('ACTIVE');
         table.boolean('is_admin').notNullable().defaultTo(false);
         table.timestamp('created_at', { useTz: true }).notNullable().defaultTo(knex.fn.now());
@@ -49,10 +50,12 @@ export async function up(knex: Knex): Promise<void> {
 
         table.string('token_hash', 255).notNullable().unique();
         table.timestamp('expires_at', { useTz: true }).notNullable();
+        table.timestamp('revoked_at', { useTz: true, }).nullable();
         table.timestamp('created_at', { useTz: true }).notNullable().defaultTo(knex.fn.now());
 
         table.index('user_id');
         table.index('expires_at');
+        table.index(['revoked_at'], 'sessions_revoked_at_index');
     });
 
     await knex.schema.createTable('access_tokens', (table) => {
