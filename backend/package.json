@@ -6,8 +6,12 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
+    "start": "node dist/server.js",
     "lint": "eslint .",
-    "start": "node dist/server.js"
+    "db:migrate": "knex --knexfile knexfile.ts migrate:latest",
+    "db:rollback": "knex --knexfile knexfile.ts migrate:rollback",
+    "db:status": "knex --knexfile knexfile.ts migrate:list",
+    "db:seed": "knex --knexfile knexfile.ts seed:run"
   },
   "dependencies": {
     "express": "^5.2.1",
