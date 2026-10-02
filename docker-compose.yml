@@ -28,6 +28,7 @@ services:
       dockerfile: ../infrastructure/docker/backend/Dockerfile
     volumes:
       - ./backend:/app
+      - ./database:/database
       - /app/node_modules
     env_file:
       - .env
