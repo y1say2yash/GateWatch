@@ -6,6 +6,7 @@ import redis from './config/redis.js';
 import authRoutes from './auth/auth-routes.js';
 import userRoutes from './users/user-routes.js';
 import projectRoutes from './projects/project-routes.js';
+import apiRoutes from './apis/api-routes.js';
 
 const app = express();
 
@@ -15,6 +16,7 @@ app.use(cookieParser());
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/users', userRoutes);
 app.use('/api/v1/projects', projectRoutes);
+app.use('/api/v1', apiRoutes);
 
 app.get('/api/health', async (_req, res) => {
     const dependencies = {
