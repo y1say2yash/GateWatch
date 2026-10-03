@@ -1,16 +1,13 @@
 import type { Request, Response } from 'express';
 
 import { deleteUserAccount, getUserProfile } from './user-service.js';
-import type { AuthenticatedRequest } from '../auth/session-middleware.js';
 
 export async function getCurrentUserProfile(
-    request: Request,
+    _request: Request,
     response: Response,
 ): Promise<void> {
     try {
-        const authenticatedRequest = request as AuthenticatedRequest;
-
-        const user = await getUserProfile(authenticatedRequest.user);
+        const user = await getUserProfile(response.locals.user);
 
         response.status(200).json({
             data: user,
@@ -28,13 +25,11 @@ export async function getCurrentUserProfile(
 }
 
 export async function deleteCurrentUser(
-    request: Request,
+    _request: Request,
     response: Response,
 ): Promise<void> {
     try {
-        const authenticatedRequest = request as AuthenticatedRequest;
-
-        await deleteUserAccount(authenticatedRequest.user);
+        await deleteUserAccount(response.locals.user);
 
         response.clearCookie('gatewatch_session', {
             httpOnly: true,

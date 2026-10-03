@@ -5,10 +5,6 @@ import {
     getAuthenticatedUser,
 } from './session-service.js';
 
-export interface AuthenticatedRequest extends Request {
-    user: NonNullable<Awaited<ReturnType<typeof getAuthenticatedUser>>>;
-}
-
 export async function requireAuthentication(
     request: Request,
     response: Response,
@@ -48,7 +44,7 @@ export async function requireAuthentication(
             return;
         }
 
-        (request as AuthenticatedRequest).user = user;
+        response.locals.user = user;
 
         next();
     } catch (error) {

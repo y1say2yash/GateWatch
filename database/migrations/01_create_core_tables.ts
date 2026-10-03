@@ -95,7 +95,9 @@ export async function up(knex: Knex): Promise<void> {
         table.timestamp('updated_at', { useTz: true }).notNullable().defaultTo(knex.fn.now());
         table.timestamp('deleted_at', { useTz: true }).nullable();
 
-        table.unique(['user_id', 'slug']);
+        table.unique('slug');
+        table.unique(['user_id', 'name']);
+
         table.index('user_id');
         table.index('status');
         table.index('deleted_at');
