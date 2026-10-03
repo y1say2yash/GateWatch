@@ -96,6 +96,8 @@ export async function up(knex: Knex): Promise<void> {
         table.timestamp('deleted_at', { useTz: true }).nullable();
 
         table.unique('slug');
+        table.unique(['user_id', 'name']);
+
         table.index('user_id');
         table.index('status');
         table.index('deleted_at');

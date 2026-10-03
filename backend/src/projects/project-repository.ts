@@ -62,6 +62,22 @@ export async function findProjectById(
     return row ? mapProject(row) : null;
 }
 
+export async function findProjectByName(
+    userId: string,
+    name: string,
+): Promise<Project | null> {
+    const row = await database<ProjectRow>('projects')
+        .where({
+            user_id: userId,
+            name,
+            status: 'ACTIVE',
+        })
+        .whereNull('deleted_at')
+        .first();
+
+    return row ? mapProject(row) : null;
+}
+
 export async function findProjectBySlug(
     slug: string,
 ): Promise<Project | null> {
@@ -121,18 +137,54 @@ export async function softDeleteProject(
     userId: string,
     projectId: string,
 ): Promise<boolean> {
-    const updatedRows = await database('projects')
-        .where({
-            id: projectId,
-            user_id: userId,
-            status: 'ACTIVE',
-        })
-        .whereNull('deleted_at')
-        .update({
-            status: 'DELETED',
-            deleted_at: database.fn.now(),
-            updated_at: database.fn.now(),
-        });
+    return database.transaction(async (trx) => {
+        const updatedRows = await trx('projects')
+            .where({
+                id: projectId,
+                user_id: userId,
+                status: 'ACTIVE',
+            })
+            .whereNull('deleted_at')
+            .update({
+                status: 'DELETED',
+                deleted_at: trx.fn.now(),
+                updated_at: trx.fn.now(),
+            });
 
-    return updatedRows > 0;
+        if (updatedRows === 0) {
+            return false;
+        }
+
+        await trx('api_routes')
+            .whereIn(
+                'api_id',
+                trx('apis')
+                    .select('id')
+                    .where('project_id', projectId),
+            )
+            .whereNull('deleted_at')
+            .update({
+                is_active: false,
+                deleted_at: trx.fn.now(),
+                updated_at: trx.fn.now(),
+            });
+
+        await trx('apis')
+            .where({
+                project_id: projectId,
+            })
+            .whereIn('status', [
+                'REGISTERED',
+                'ACTIVE',
+                'DISABLED',
+            ])
+            .whereNull('deleted_at')
+            .update({
+                status: 'DELETED',
+                deleted_at: trx.fn.now(),
+                updated_at: trx.fn.now(),
+            });
+
+        return true;
+    });
 }

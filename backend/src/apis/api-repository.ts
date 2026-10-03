@@ -124,36 +124,40 @@ export async function updateApi(
     apiId: string,
     input: UpdateApiInput,
 ): Promise<Api | null> {
+    const updateData: Record<string, unknown> = {
+        version: database.raw('version + 1'),
+        updated_at: database.fn.now(),
+    };
+
+    if (input.name !== undefined) {
+        updateData.name = input.name;
+    }
+
+    if (input.description !== undefined) {
+        updateData.description = input.description;
+    }
+
+    if (input.upstreamUrl !== undefined) {
+        updateData.upstream_url = input.upstreamUrl;
+    }
+
+    if (input.upstreamBasePath !== undefined) {
+        updateData.upstream_base_path = input.upstreamBasePath;
+    }
+
     const [row] = await database<ApiRow>('apis')
-        .join('projects', 'projects.id', 'apis.project_id')
-        .where({
-            'apis.id': apiId,
-            'projects.user_id': userId,
-        })
-        .whereIn('apis.status', [
-            'REGISTERED',
-            'ACTIVE',
-            'DISABLED',
-        ])
+        .where('apis.id', apiId)
+        .whereIn(
+            'apis.project_id',
+            database('projects')
+                .select('projects.id')
+                .where('projects.user_id', userId)
+                .whereNull('projects.deleted_at'),
+        )
+        .whereIn('apis.status', ['REGISTERED', 'ACTIVE', 'DISABLED'])
         .whereNull('apis.deleted_at')
-        .whereNull('projects.deleted_at')
-        .update({
-            ...(input.name !== undefined && {
-                name: input.name,
-            }),
-            ...(input.description !== undefined && {
-                description: input.description,
-            }),
-            ...(input.upstreamUrl !== undefined && {
-                upstream_url: input.upstreamUrl,
-            }),
-            ...(input.upstreamBasePath !== undefined && {
-                upstream_base_path: input.upstreamBasePath,
-            }),
-            version: database.raw('version + 1'),
-            updated_at: database.fn.now(),
-        })
-        .returning('apis.*');
+        .update(updateData)
+        .returning('*');
 
     return row ? mapApi(row) : null;
 }
@@ -164,24 +168,22 @@ export async function updateApiStatus(
     status: 'ACTIVE' | 'DISABLED',
 ): Promise<Api | null> {
     const [row] = await database<ApiRow>('apis')
-        .join('projects', 'projects.id', 'apis.project_id')
-        .where({
-            'apis.id': apiId,
-            'projects.user_id': userId,
-        })
-        .whereIn('apis.status', [
-            'REGISTERED',
-            'ACTIVE',
-            'DISABLED',
-        ])
+        .where('apis.id', apiId)
+        .whereIn(
+            'apis.project_id',
+            database('projects')
+                .select('projects.id')
+                .where('projects.user_id', userId)
+                .whereNull('projects.deleted_at'),
+        )
+        .whereIn('apis.status', ['REGISTERED', 'ACTIVE', 'DISABLED'])
         .whereNull('apis.deleted_at')
-        .whereNull('projects.deleted_at')
         .update({
             status,
             version: database.raw('version + 1'),
             updated_at: database.fn.now(),
         })
-        .returning('apis.*');
+        .returning('*');
 
     return row ? mapApi(row) : null;
 }
@@ -190,28 +192,43 @@ export async function softDeleteApi(
     userId: string,
     apiId: string,
 ): Promise<boolean> {
-    const updatedRows = await database('apis')
-        .whereIn(
-            'project_id',
-            database('projects')
-                .select('id')
-                .where('user_id', userId)
-                .whereNull('deleted_at'),
-        )
-        .where({
-            id: apiId,
-        })
-        .whereIn('status', [
-            'REGISTERED',
-            'ACTIVE',
-            'DISABLED',
-        ])
-        .whereNull('deleted_at')
-        .update({
-            status: 'DELETED',
-            deleted_at: database.fn.now(),
-            updated_at: database.fn.now(),
-        });
+    return database.transaction(async (trx) => {
+        const updatedRows = await trx('apis')
+            .where('apis.id', apiId)
+            .whereIn(
+                'apis.project_id',
+                trx('projects')
+                    .select('id')
+                    .where('user_id', userId)
+                    .whereNull('deleted_at'),
+            )
+            .whereIn('status', [
+                'REGISTERED',
+                'ACTIVE',
+                'DISABLED',
+            ])
+            .whereNull('deleted_at')
+            .update({
+                status: 'DELETED',
+                deleted_at: trx.fn.now(),
+                updated_at: trx.fn.now(),
+            });
 
-    return updatedRows > 0;
+        if (updatedRows === 0) {
+            return false;
+        }
+
+        await trx('api_routes')
+            .where({
+                api_id: apiId,
+            })
+            .whereNull('deleted_at')
+            .update({
+                is_active: false,
+                deleted_at: trx.fn.now(),
+                updated_at: trx.fn.now(),
+            });
+
+        return true;
+    });
 }

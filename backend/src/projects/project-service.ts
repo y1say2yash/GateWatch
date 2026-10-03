@@ -1,21 +1,31 @@
 import {
     createProject,
     findProjectById,
+    findProjectByName,
     findProjectBySlug,
     findProjectsByUserId,
     softDeleteProject,
     updateProject,
 } from './project-repository.js';
+
 import {
     validateCreateProjectInput,
     validateUpdateProjectInput,
 } from './project-validation.js';
+
 import type { Project } from './project-types.js';
 
 export class ProjectNotFoundError extends Error {
     constructor() {
         super('Project not found.');
         this.name = 'ProjectNotFoundError';
+    }
+}
+
+export class ProjectNameConflictError extends Error {
+    constructor() {
+        super('A project with this name already exists.');
+        this.name = 'ProjectNameConflictError';
     }
 }
 
@@ -49,9 +59,20 @@ export async function createUserProject(
 ): Promise<Project> {
     const validatedInput = validateCreateProjectInput(input);
 
-    const existingProject = await findProjectBySlug(validatedInput.slug);
+    const existingProjectByName = await findProjectByName(
+        userId,
+        validatedInput.name,
+    );
 
-    if (existingProject) {
+    if (existingProjectByName) {
+        throw new ProjectNameConflictError();
+    }
+
+    const existingProjectBySlug = await findProjectBySlug(
+        validatedInput.slug,
+    );
+
+    if (existingProjectBySlug) {
         throw new ProjectSlugConflictError();
     }
 
@@ -65,8 +86,21 @@ export async function updateUserProject(
 ): Promise<Project> {
     const validatedInput = validateUpdateProjectInput(input);
 
+    if (validatedInput.name !== undefined) {
+        const existingProject = await findProjectByName(
+            userId,
+            validatedInput.name,
+        );
+
+        if (existingProject && existingProject.id !== projectId) {
+            throw new ProjectNameConflictError();
+        }
+    }
+
     if (validatedInput.slug !== undefined) {
-        const existingProject = await findProjectBySlug(validatedInput.slug);
+        const existingProject = await findProjectBySlug(
+            validatedInput.slug,
+        );
 
         if (existingProject && existingProject.id !== projectId) {
             throw new ProjectSlugConflictError();

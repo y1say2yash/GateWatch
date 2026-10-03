@@ -5,10 +5,12 @@ import {
     deleteUserProject,
     getUserProject,
     listUserProjects,
+    ProjectNameConflictError,
     ProjectNotFoundError,
     ProjectSlugConflictError,
     updateUserProject,
 } from './project-service.js';
+
 import { ProjectValidationError } from './project-validation.js';
 
 function handleProjectError(error: unknown, response: Response): void {
@@ -16,6 +18,17 @@ function handleProjectError(error: unknown, response: Response): void {
         response.status(400).json({
             error: {
                 code: error.code,
+                message: error.message,
+            },
+        });
+
+        return;
+    }
+
+    if (error instanceof ProjectNameConflictError) {
+        response.status(409).json({
+            error: {
+                code: 'PROJECT_NAME_CONFLICT',
                 message: error.message,
             },
         });

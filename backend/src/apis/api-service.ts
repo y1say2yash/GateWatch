@@ -7,14 +7,21 @@ import {
     updateApi,
     updateApiStatus,
 } from './api-repository.js';
+
 import type {
     CreateApiInput,
     UpdateApiInput,
 } from './api-types.js';
+
 import {
     validateCreateApiInput,
     validateUpdateApiInput,
 } from './api-validation.js';
+
+import {
+    ProjectNotFoundError,
+    getUserProject,
+} from '../projects/project-service.js';
 
 export class ApiNotFoundError extends Error { }
 
@@ -24,6 +31,16 @@ export async function listUserProjectApis(
     userId: string,
     projectId: string,
 ) {
+    try {
+        await getUserProject(userId, projectId);
+    } catch (error) {
+        if (error instanceof ProjectNotFoundError) {
+            throw new ApiNotFoundError('Project not found.');
+        }
+
+        throw error;
+    }
+
     return findApisByProjectId(userId, projectId);
 }
 
@@ -47,6 +64,16 @@ export async function createUserApi(
 ) {
     const validatedInput: CreateApiInput =
         validateCreateApiInput(input);
+
+    try {
+        await getUserProject(userId, projectId);
+    } catch (error) {
+        if (error instanceof ProjectNotFoundError) {
+            throw new ApiNotFoundError('Project not found.');
+        }
+
+        throw error;
+    }
 
     const existingApi = await findApiByName(
         userId,

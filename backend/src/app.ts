@@ -7,6 +7,7 @@ import authRoutes from './auth/auth-routes.js';
 import userRoutes from './users/user-routes.js';
 import projectRoutes from './projects/project-routes.js';
 import apiRoutes from './apis/api-routes.js';
+import routeRoutes from './routes/route-routes.js';
 
 const app = express();
 
@@ -17,6 +18,7 @@ app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/users', userRoutes);
 app.use('/api/v1/projects', projectRoutes);
 app.use('/api/v1', apiRoutes);
+app.use('/api/v1', routeRoutes);
 
 app.get('/api/health', async (_req, res) => {
     const dependencies = {
