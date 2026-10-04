@@ -1,7 +1,7 @@
 import {
     createRoute,
     findRouteById,
-    findRouteByPathAndMethod,
+    findRouteByProjectPathAndMethod,
     findRoutesByApiId,
     softDeleteRoute,
     updateRoute,
@@ -51,8 +51,10 @@ export async function createUserApiRoute(
     const validatedInput: CreateRouteInput =
         validateCreateRouteInput(input);
 
+    let api;
+
     try {
-        await getUserApi(userId, apiId);
+        api = await getUserApi(userId, apiId);
     } catch (error) {
         if (error instanceof ApiNotFoundError) {
             throw new RouteNotFoundError('API not found.');
@@ -61,12 +63,13 @@ export async function createUserApiRoute(
         throw error;
     }
 
-    const duplicate = await findRouteByPathAndMethod(
-        userId,
-        apiId,
-        validatedInput.pathPrefix,
-        validatedInput.method,
-    );
+    const duplicate =
+        await findRouteByProjectPathAndMethod(
+            userId,
+            api.projectId,
+            validatedInput.pathPrefix,
+            validatedInput.method,
+        );
 
     if (duplicate) {
         throw new RouteConflictError(
@@ -74,7 +77,11 @@ export async function createUserApiRoute(
         );
     }
 
-    return createRoute(apiId, validatedInput);
+    return createRoute(
+        apiId,
+        api.projectId,
+        validatedInput,
+    );
 }
 
 export async function updateUserApiRoute(
@@ -106,10 +113,15 @@ export async function updateUserApiRoute(
         nextPathPrefix !== existingRoute.pathPrefix ||
         nextMethod !== existingRoute.method
     ) {
+        const api = await getUserApi(
+            userId,
+            existingRoute.apiId,
+        );
+
         const duplicate =
-            await findRouteByPathAndMethod(
+            await findRouteByProjectPathAndMethod(
                 userId,
-                existingRoute.apiId,
+                api.projectId,
                 nextPathPrefix,
                 nextMethod,
             );
