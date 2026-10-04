@@ -130,6 +130,7 @@ export async function up(knex: Knex): Promise<void> {
 
     await knex.schema.createTable('api_routes', (table) => {
         table.uuid('id').primary().defaultTo(knex.raw('gen_random_uuid()'));
+
         table
             .uuid('api_id')
             .notNullable()
@@ -137,14 +138,24 @@ export async function up(knex: Knex): Promise<void> {
             .inTable('apis')
             .onDelete('CASCADE');
 
+        table
+            .uuid('project_id')
+            .notNullable()
+            .references('id')
+            .inTable('projects')
+            .onDelete('CASCADE');
+
         table.string('path_prefix', 2048).notNullable();
         table.string('method', 10).notNullable();
+
         table.boolean('is_active').notNullable().defaultTo(true);
+
         table.timestamp('created_at', { useTz: true }).notNullable().defaultTo(knex.fn.now());
         table.timestamp('updated_at', { useTz: true }).notNullable().defaultTo(knex.fn.now());
         table.timestamp('deleted_at', { useTz: true }).nullable();
 
-        table.unique(['api_id', 'path_prefix', 'method']);
+        table.unique(['project_id', 'path_prefix', 'method']);
+
         table.index('api_id');
         table.index(['path_prefix', 'method']);
         table.index('deleted_at');

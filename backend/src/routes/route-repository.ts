@@ -9,6 +9,7 @@ import type {
 interface RouteRow {
     id: string;
     api_id: string;
+    project_id: string;
     path_prefix: string;
     method: ApiRoute['method'];
     is_active: boolean;
@@ -103,13 +104,40 @@ export async function findRouteByPathAndMethod(
     return row ? mapRoute(row) : null;
 }
 
+export async function findRouteByProjectPathAndMethod(
+    userId: string,
+    projectId: string,
+    pathPrefix: string,
+    method: ApiRoute['method'],
+): Promise<ApiRoute | null> {
+    const row = await database<RouteRow>('api_routes')
+        .join('apis', 'apis.id', 'api_routes.api_id')
+        .join('projects', 'projects.id', 'apis.project_id')
+        .where({
+            'api_routes.project_id': projectId,
+            'api_routes.path_prefix': pathPrefix,
+            'api_routes.method': method,
+            'projects.user_id': userId,
+        })
+        .whereIn('apis.status', activeApiStatuses)
+        .whereNull('api_routes.deleted_at')
+        .whereNull('apis.deleted_at')
+        .whereNull('projects.deleted_at')
+        .select('api_routes.*')
+        .first();
+
+    return row ? mapRoute(row) : null;
+}
+
 export async function createRoute(
     apiId: string,
+    projectId: string,
     input: CreateRouteInput,
 ): Promise<ApiRoute> {
     const [row] = await database<RouteRow>('api_routes')
         .insert({
             api_id: apiId,
+            project_id: projectId,
             path_prefix: input.pathPrefix,
             method: input.method,
         })

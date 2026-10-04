@@ -8,11 +8,15 @@ import userRoutes from './users/user-routes.js';
 import projectRoutes from './projects/project-routes.js';
 import apiRoutes from './apis/api-routes.js';
 import routeRoutes from './routes/route-routes.js';
+import gatewayRoutes from './gateway/gateway-routes.js';
 
 const app = express();
 
-app.use(express.json());
 app.use(cookieParser());
+
+app.use(gatewayRoutes);
+
+app.use(express.json());
 
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/users', userRoutes);
