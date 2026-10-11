@@ -576,6 +576,35 @@ GET /api/v1/apis/:apiId/requests
 GET /api/v1/request-history/:requestId
 ```
 
+Request-history collection queries support `page` (default `1`), `limit`
+(default `20`, maximum `100`), `statusCode`, `method`, `from`, `to`, and
+`sort=timestamp&order=asc|desc` (default `timestamp` descending). `from` and
+`to` are inclusive timestamps; `from` must not be later than `to`. Unsupported
+query parameters and sort fields are rejected. A successful response uses the
+standard paginated envelope and each item includes `requestId`, `apiId`,
+`routeId`, `method`, `path`, `statusCode`, `latencyMs`, `clientIdentity`,
+`timestamp`, and safe `result` metadata. The path excludes the query string.
+Credential-style and likely opaque token path segments are redacted.
+`latencyMs`, `clientIdentity`, and `routeId` may be `null` for legacy entries
+or when the value is unavailable.
+An owned API with no matching history returns an empty page. Both endpoints
+return not found for missing or unowned resources.
+
+### Monitoring Summary
+
+```
+GET /api/v1/apis/:apiId/monitoring/summary?from=<timestamp>&to=<timestamp>
+```
+
+The optional inclusive `from` and `to` parameters accept valid timestamps;
+`from` must not be later than `to`. The response is wrapped in `data` and
+contains `apiId`, `period`, `totalRequests`, `statusCodeCounts`,
+`averageLatencyMs`, `errorCount`, and `errorRate`. Errors are status codes
+greater than or equal to 400; `errorRate` is `errorCount / totalRequests`, or
+zero when no requests match. `averageLatencyMs` is `null` when the range has no
+recorded latency. Health-check history continues to use
+`GET /api/v1/apis/:apiId/health/history`.
+
 ### 11.9 Alerts
 
 ```
@@ -631,6 +660,18 @@ GET /api/v1/admin/audit-logs
 ```
 
 Audit-log viewing is Admin-only in the MVP.
+
+The endpoint supports `page` (default `1`), `limit` (default `20`, maximum
+`100`), and inclusive `from` and `to` timestamps. Invalid timestamps, reversed
+ranges, repeated/non-string values, and unsupported query parameters return
+`400` with the standard structured error envelope. Records are ordered newest
+first by `created_at`, then by `id` descending for stable ordering.
+
+The paginated response contains audit records with `id`, `userId`,
+`actorRole`, `action`, `resourceType`, `resourceId`, `details`, `ipAddress`,
+and `createdAt`, plus the standard `pagination` object. `details` includes
+only safe scalar metadata; sensitive-key entries and nested values are
+excluded.
 
 Admins do not automatically become owners of another user's resources.
 

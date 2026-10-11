@@ -386,6 +386,12 @@ Audit records shall identify the:
 - Timestamp
 - Additional metadata where applicable
 
+Audit events cover successful authentication and logout, relevant
+authentication failures, supported project/API/route lifecycle changes,
+API-key creation and revocation, rate-limit and health-check configuration
+updates, and user-initiated account deletion. Admin user/role changes and test
+lifecycle/execution events are recorded only when those operations exist.
+
 ### FR-LOG-006 — Operational Logs
 
 Application and infrastructure operational logs shall be handled separately from user-facing request history and audit logs.
@@ -440,6 +446,15 @@ GateWatch shall monitor API response latency and request errors.
 ### FR-MON-008 — Error Rate Monitoring
 
 GateWatch shall support monitoring of API error rates against configured thresholds.
+
+The MVP API monitoring summary shall report total requests, counts by HTTP
+status code, average recorded latency, error count, and error rate for an
+optional inclusive time range. An error is a request with status code 400 or
+higher, and the error-rate denominator is all recorded requests in that range.
+An empty range reports zero requests, errors, and error rate, with no average
+latency. Health history remains provided by the existing health-check module.
+These API-level summaries are separate from AWS CloudWatch operational
+monitoring.
 
 ### 9.3 Alerts
 

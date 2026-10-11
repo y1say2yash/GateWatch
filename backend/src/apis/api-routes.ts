@@ -22,6 +22,11 @@ import {
     patchApiHealthConfigController,
     postApiHealthCheckController,
 } from '../health/health-controller.js';
+import {
+    getRequestHistoryRecord,
+    listApiRequestHistory,
+} from '../request-history/request-history-controller.js';
+import { getApiMonitoringSummary } from '../monitoring/monitoring-controller.js';
 
 const router = Router();
 
@@ -100,6 +105,21 @@ router.get(
 router.get(
     '/apis/:apiId/health/history',
     getApiHealthHistoryController,
+);
+
+router.get(
+    '/apis/:apiId/requests',
+    listApiRequestHistory,
+);
+
+router.get(
+    '/apis/:apiId/monitoring/summary',
+    getApiMonitoringSummary,
+);
+
+router.get(
+    '/request-history/:requestId',
+    getRequestHistoryRecord,
 );
 
 export default router;

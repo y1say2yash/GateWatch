@@ -1,6 +1,12 @@
 import type { Request, Response } from 'express';
 
 import {
+    AuditLogWriteError,
+    getAuditActorRole,
+    sendAuditLogFailure,
+    writeAuditLog,
+} from '../audit/audit-service.js';
+import {
     authenticateWithGitHub,
     buildGitHubAuthorizationUrl,
     createOAuthState,
@@ -33,6 +39,14 @@ export async function githubCallback(
         const { code, state, error, error_description } = request.query;
 
         if (error) {
+            await writeAuditLog({
+                actorUserId: null,
+                actorRole: null,
+                action: 'AUTHENTICATION_FAILED',
+                resourceType: 'SESSION',
+                metadata: { reason: 'OAUTH_ACCESS_DENIED' },
+                ipAddress: request.socket.remoteAddress,
+            });
             response.status(400).json({
                 error: {
                     code: 'OAUTH_ACCESS_DENIED',
@@ -54,6 +68,14 @@ export async function githubCallback(
         const validState = await validateOAuthState(state as string);
 
         if (!validState) {
+            await writeAuditLog({
+                actorUserId: null,
+                actorRole: null,
+                action: 'AUTHENTICATION_FAILED',
+                resourceType: 'SESSION',
+                metadata: { reason: 'OAUTH_INVALID_STATE' },
+                ipAddress: request.socket.remoteAddress,
+            });
             response.status(400).json({
                 error: {
                     code: 'OAUTH_INVALID_STATE',
@@ -64,9 +86,16 @@ export async function githubCallback(
             return;
         }
 
-        const { sessionToken } = await authenticateWithGitHub(
+        const { sessionToken, user } = await authenticateWithGitHub(
             code as string,
         );
+        await writeAuditLog({
+            actorUserId: user.id,
+            actorRole: getAuditActorRole(user.isAdmin),
+            action: 'AUTHENTICATION_SUCCEEDED',
+            resourceType: 'SESSION',
+            ipAddress: request.socket.remoteAddress,
+        });
 
         response.cookie(SESSION_COOKIE_NAME, sessionToken, {
             httpOnly: true,
@@ -78,15 +107,37 @@ export async function githubCallback(
 
         response.redirect('/');
     } catch (error) {
+        if (sendAuditLogFailure(error, response)) {
+            return;
+        }
         console.error('GitHub OAuth callback failed:', error);
+
+        try {
+            await writeAuditLog({
+                actorUserId: null,
+                actorRole: null,
+                action: 'AUTHENTICATION_FAILED',
+                resourceType: 'SESSION',
+                metadata: { reason: 'OAUTH_CALLBACK_FAILED' },
+                ipAddress: request.socket.remoteAddress,
+            });
+        } catch (auditError) {
+            if (sendAuditLogFailure(auditError, response)) {
+                return;
+            }
+            response.status(503).json({
+                error: {
+                    code: 'AUDIT_LOG_UNAVAILABLE',
+                    message: 'Audit logging is temporarily unavailable.',
+                },
+            });
+            return;
+        }
 
         response.status(500).json({
             error: {
                 code: 'OAUTH_AUTHENTICATION_FAILED',
-                message:
-                    error instanceof Error
-                        ? error.message
-                        : 'GitHub authentication failed.',
+                message: 'GitHub authentication failed.',
             },
         });
     }
@@ -146,7 +197,26 @@ export async function logout(
         const sessionToken = request.cookies?.[SESSION_COOKIE_NAME];
 
         if (sessionToken) {
+            const user = await getAuthenticatedUser(sessionToken);
             await revokeSession(sessionToken);
+            if (user) {
+                await writeAuditLog({
+                    actorUserId: user.id,
+                    actorRole: getAuditActorRole(user.isAdmin),
+                    action: 'LOGOUT',
+                    resourceType: 'SESSION',
+                    ipAddress: request.socket.remoteAddress,
+                });
+            } else {
+                await writeAuditLog({
+                    actorUserId: null,
+                    actorRole: null,
+                    action: 'AUTHENTICATION_FAILED',
+                    resourceType: 'SESSION',
+                    metadata: { reason: 'LOGOUT_INVALID_SESSION' },
+                    ipAddress: request.socket.remoteAddress,
+                });
+            }
         }
 
         response.clearCookie(SESSION_COOKIE_NAME, {
@@ -159,6 +229,16 @@ export async function logout(
         response.status(204).send();
     } catch (error) {
         console.error('Logout failed:', error);
+        if (error instanceof AuditLogWriteError) {
+            response.clearCookie(SESSION_COOKIE_NAME, {
+                httpOnly: true,
+                secure: process.env.NODE_ENV === 'production',
+                sameSite: 'lax',
+                path: '/',
+            });
+            sendAuditLogFailure(error, response);
+            return;
+        }
 
         response.status(500).json({
             error: {

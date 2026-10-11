@@ -1232,11 +1232,18 @@ Healthy
 Recovery notification
 ```
 
-### 15.13 No Request History Persistence
+### 15.13 Observability Persistence Failures
 
 If request-history persistence fails but the upstream request succeeds, the client still receives the upstream response.
 
 The persistence failure is recorded through operational logging.
+
+Audit writes are synchronous and required for a management operation to return
+success. If an audit write fails, GateWatch logs a generic operational error
+and returns `503 AUDIT_LOG_UNAVAILABLE` without exposing database details.
+Because current management writes are not transactionally coupled to audit
+writes, an operation can have taken effect before this response; clients
+should inspect resource state before retrying.
 
 ### 15.14 No Redis Configuration Cache
 

@@ -1,4 +1,9 @@
 import type { Request, Response } from 'express';
+import {
+    getAuditActorRole,
+    sendAuditLogFailure,
+    writeAuditLog,
+} from '../audit/audit-service.js';
 
 import {
     RateLimitConfigNotFoundError,
@@ -14,6 +19,10 @@ function handleRateLimitConfigError(
     error: unknown,
     response: Response,
 ): void {
+    if (sendAuditLogFailure(error, response)) {
+        return;
+    }
+
     if (error instanceof RateLimitValidationError) {
         response.status(400).json({
             error: {
@@ -71,6 +80,14 @@ export async function updateApiRateLimitController(
             request.params.apiId,
             input,
         );
+        await writeAuditLog({
+            actorUserId: response.locals.user.id,
+            actorRole: getAuditActorRole(response.locals.user.isAdmin),
+            action: 'RATE_LIMIT_CONFIG_UPDATED',
+            resourceType: 'API',
+            resourceId: config.apiId,
+            ipAddress: request.socket.remoteAddress,
+        });
 
         response.status(200).json({ data: config });
     } catch (error) {

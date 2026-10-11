@@ -474,6 +474,27 @@ Migrations should:
 
 A migration that changes an existing database contract should be reviewed alongside the affected system design and API requirements.
 
+### Backend Checks and Database Connectivity
+
+The backend Compose container runs in `/app` and uses the Compose network,
+where the PostgreSQL service is reachable as `postgres`. Run database-backed
+backend checks and migration status there:
+
+```bash
+docker compose exec backend npm test
+docker compose exec backend npm run lint
+docker compose exec backend npm run build
+docker compose exec backend npm run db:status
+```
+
+For tests run directly on the host, set `POSTGRES_HOST=127.0.0.1` and
+`POSTGRES_PORT` to the published PostgreSQL port from the root `.env`. The
+Knex application connection uses those variables. The current
+`backend/knexfile.ts` migration directory (`/database/migrations`) is mounted
+inside the Compose backend container; a host-run migration command also needs
+a Knex configuration whose migration and seed directories point to the
+repository's host paths under `database/`.
+
 ---
 
 # 13. Seed Data
@@ -1618,3 +1639,11 @@ GateWatch development follows these principles:
 12. **Small, reviewable changes**
     
     Features and fixes should be developed as focused changes that can be independently reviewed and merged.
+
+## Backend observability tests
+
+Run the backend test suite from the `backend` directory with `npm test`.
+Request-history, monitoring, and audit persistence tests require a reachable
+PostgreSQL database with the latest migrations applied (`npm run db:migrate`).
+The gateway tests use local loopback HTTP servers as upstreams; they do not
+persist request or response bodies.

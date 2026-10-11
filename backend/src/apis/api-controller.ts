@@ -13,11 +13,20 @@ import {
     setUserApiAuthenticationRequired,
 } from './api-service.js';
 import { ApiValidationError } from './api-validation.js';
+import {
+    getAuditActorRole,
+    sendAuditLogFailure,
+    writeAuditLog,
+} from '../audit/audit-service.js';
 
 function handleApiError(
     error: unknown,
     response: Response,
 ): void {
+    if (sendAuditLogFailure(error, response)) {
+        return;
+    }
+
     if (error instanceof ApiValidationError) {
         response.status(400).json({
             error: {
@@ -89,6 +98,14 @@ export async function createApiController(
             request.params.projectId,
             request.body,
         );
+        await writeAuditLog({
+            actorUserId: response.locals.user.id,
+            actorRole: getAuditActorRole(response.locals.user.isAdmin),
+            action: 'API_CREATED',
+            resourceType: 'API',
+            resourceId: api.id,
+            ipAddress: request.socket.remoteAddress,
+        });
 
         response.status(201).json({
             data: api,
@@ -126,6 +143,14 @@ export async function updateApiController(
             request.params.apiId,
             request.body,
         );
+        await writeAuditLog({
+            actorUserId: response.locals.user.id,
+            actorRole: getAuditActorRole(response.locals.user.isAdmin),
+            action: 'API_UPDATED',
+            resourceType: 'API',
+            resourceId: api.id,
+            ipAddress: request.socket.remoteAddress,
+        });
 
         response.status(200).json({
             data: api,
@@ -144,6 +169,14 @@ export async function deleteApiController(
             response.locals.user.id,
             request.params.apiId,
         );
+        await writeAuditLog({
+            actorUserId: response.locals.user.id,
+            actorRole: getAuditActorRole(response.locals.user.isAdmin),
+            action: 'API_DELETED',
+            resourceType: 'API',
+            resourceId: request.params.apiId,
+            ipAddress: request.socket.remoteAddress,
+        });
 
         response.status(204).send();
     } catch (error) {
@@ -160,6 +193,14 @@ export async function enableApi(
             response.locals.user.id,
             request.params.apiId,
         );
+        await writeAuditLog({
+            actorUserId: response.locals.user.id,
+            actorRole: getAuditActorRole(response.locals.user.isAdmin),
+            action: 'API_ENABLED',
+            resourceType: 'API',
+            resourceId: api.id,
+            ipAddress: request.socket.remoteAddress,
+        });
 
         response.status(200).json({
             data: api,
@@ -178,6 +219,14 @@ export async function disableApi(
             response.locals.user.id,
             request.params.apiId,
         );
+        await writeAuditLog({
+            actorUserId: response.locals.user.id,
+            actorRole: getAuditActorRole(response.locals.user.isAdmin),
+            action: 'API_DISABLED',
+            resourceType: 'API',
+            resourceId: api.id,
+            ipAddress: request.socket.remoteAddress,
+        });
 
         response.status(200).json({
             data: api,
@@ -214,6 +263,15 @@ export async function updateApiAuthentication(
             request.params.apiId,
             body.required,
         );
+        await writeAuditLog({
+            actorUserId: response.locals.user.id,
+            actorRole: getAuditActorRole(response.locals.user.isAdmin),
+            action: 'API_AUTHENTICATION_UPDATED',
+            resourceType: 'API',
+            resourceId: api.id,
+            metadata: { required: body.required },
+            ipAddress: request.socket.remoteAddress,
+        });
 
         response.status(200).json({ data: api });
     } catch (error) {
