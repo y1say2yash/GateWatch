@@ -14,6 +14,7 @@ interface ApiRow {
     upstream_url: string;
     upstream_base_path: string | null;
     status: Api['status'];
+    auth_required: boolean;
     version: number;
     created_at: Date;
     updated_at: Date;
@@ -29,6 +30,7 @@ function mapApi(row: ApiRow): Api {
         upstreamUrl: row.upstream_url,
         upstreamBasePath: row.upstream_base_path,
         status: row.status,
+        authRequired: row.auth_required,
         version: row.version,
         createdAt: row.created_at.toISOString(),
         updatedAt: row.updated_at.toISOString(),
@@ -231,4 +233,34 @@ export async function softDeleteApi(
 
         return true;
     });
+}
+
+export async function updateApiAuthenticationRequired(
+    userId: string,
+    apiId: string,
+    authRequired: boolean,
+): Promise<Api | null> {
+    const [row] = await database<ApiRow>('apis')
+        .where('apis.id', apiId)
+        .whereIn(
+            'apis.project_id',
+            database('projects')
+                .select('projects.id')
+                .where('projects.user_id', userId)
+                .whereNull('projects.deleted_at'),
+        )
+        .whereIn('apis.status', [
+            'REGISTERED',
+            'ACTIVE',
+            'DISABLED',
+        ])
+        .whereNull('apis.deleted_at')
+        .update({
+            auth_required: authRequired,
+            version: database.raw('version + 1'),
+            updated_at: database.fn.now(),
+        })
+        .returning('*');
+
+    return row ? mapApi(row) : null;
 }

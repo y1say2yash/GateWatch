@@ -141,7 +141,8 @@ function copyRequestHeaders(
 
         if (
             HOP_BY_HOP_HEADERS.has(lowerName) ||
-            lowerName === 'host'
+            lowerName === 'host' ||
+            lowerName === 'x-api-key'
         ) {
             continue;
         }

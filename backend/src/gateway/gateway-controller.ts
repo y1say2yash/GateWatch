@@ -15,6 +15,8 @@ import {
     resolveGatewayRoute,
 } from './gateway-service.js';
 
+import { authenticateApiKey } from '../api-keys/api-key-service.js';
+
 function getGatewayPath(
     request: Request,
 ): string {
@@ -76,6 +78,46 @@ function sendGatewayError(
     });
 }
 
+async function authenticateGatewayClient(
+    request: Request,
+    response: Response,
+    apiId: string,
+): Promise<boolean> {
+    const suppliedKey = request.headers['x-api-key'];
+
+    if (
+        typeof suppliedKey !== 'string' ||
+        suppliedKey.trim().length === 0
+    ) {
+        sendGatewayError(
+            response,
+            401,
+            'API_KEY_REQUIRED',
+            'A valid API key is required for this API.',
+        );
+        return false;
+    }
+
+    const authenticatedKey = await authenticateApiKey(
+        suppliedKey.trim(),
+    );
+
+    if (
+        !authenticatedKey ||
+        authenticatedKey.apiId !== apiId
+    ) {
+        sendGatewayError(
+            response,
+            401,
+            'INVALID_API_KEY',
+            'The supplied API key is invalid for this API.',
+        );
+        return false;
+    }
+
+    return true;
+}
+
 export async function handleGatewayRequest(
     request: Request,
     response: Response,
@@ -119,6 +161,18 @@ export async function handleGatewayRequest(
                 'The requested API is currently disabled.',
             );
             return;
+        }
+
+        if (resolution.api.authRequired) {
+            const authenticated = await authenticateGatewayClient(
+                request,
+                response,
+                resolution.api.id,
+            );
+
+            if (!authenticated) {
+                return;
+            }
         }
 
         await proxyGatewayRequest(

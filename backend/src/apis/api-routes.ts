@@ -9,6 +9,7 @@ import {
     getApi,
     listApis,
     updateApiController,
+    updateApiAuthentication,
 } from './api-controller.js';
 
 const router = Router();
@@ -48,6 +49,11 @@ router.post(
 router.post(
     '/apis/:apiId/disable',
     disableApi,
+);
+
+router.patch(
+    '/apis/:apiId/authentication',
+    updateApiAuthentication,
 );
 
 export default router;

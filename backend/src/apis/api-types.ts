@@ -12,6 +12,7 @@ export interface Api {
     upstreamUrl: string;
     upstreamBasePath: string | null;
     status: ApiStatus;
+    authRequired: boolean;
     version: number;
     createdAt: string;
     updatedAt: string;

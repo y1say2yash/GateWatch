@@ -10,6 +10,7 @@ import {
     getUserApi,
     listUserProjectApis,
     updateUserApi,
+    setUserApiAuthenticationRequired,
 } from './api-service.js';
 import { ApiValidationError } from './api-validation.js';
 
@@ -181,6 +182,40 @@ export async function disableApi(
         response.status(200).json({
             data: api,
         });
+    } catch (error) {
+        handleApiError(error, response);
+    }
+}
+
+export async function updateApiAuthentication(
+    request: Request<{ apiId: string }>,
+    response: Response,
+): Promise<void> {
+    const body: unknown = request.body;
+
+    if (
+        typeof body !== 'object' ||
+        body === null ||
+        !('required' in body) ||
+        typeof body.required !== 'boolean'
+    ) {
+        response.status(400).json({
+            error: {
+                code: 'INVALID_AUTHENTICATION_CONFIG',
+                message: 'The required field must be a boolean.',
+            },
+        });
+        return;
+    }
+
+    try {
+        const api = await setUserApiAuthenticationRequired(
+            response.locals.user.id,
+            request.params.apiId,
+            body.required,
+        );
+
+        response.status(200).json({ data: api });
     } catch (error) {
         handleApiError(error, response);
     }
