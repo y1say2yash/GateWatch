@@ -16,6 +16,19 @@ import {
 } from './gateway-service.js';
 
 import { authenticateApiKey } from '../api-keys/api-key-service.js';
+import {
+    consumeGatewayRateLimit,
+    getGatewayRateLimitConfig,
+    RateLimitUnavailableError,
+} from '../rate-limits/rate-limit-service.js';
+
+type GatewayAuthenticationResult =
+    | { authenticated: true; keyId: string }
+    | {
+        authenticated: false;
+        code: 'API_KEY_REQUIRED' | 'INVALID_API_KEY';
+        message: string;
+    };
 
 function getGatewayPath(
     request: Request,
@@ -80,22 +93,19 @@ function sendGatewayError(
 
 async function authenticateGatewayClient(
     request: Request,
-    response: Response,
     apiId: string,
-): Promise<boolean> {
+): Promise<GatewayAuthenticationResult> {
     const suppliedKey = request.headers['x-api-key'];
 
     if (
         typeof suppliedKey !== 'string' ||
         suppliedKey.trim().length === 0
     ) {
-        sendGatewayError(
-            response,
-            401,
-            'API_KEY_REQUIRED',
-            'A valid API key is required for this API.',
-        );
-        return false;
+        return {
+            authenticated: false,
+            code: 'API_KEY_REQUIRED',
+            message: 'A valid API key is required for this API.',
+        };
     }
 
     const authenticatedKey = await authenticateApiKey(
@@ -106,16 +116,17 @@ async function authenticateGatewayClient(
         !authenticatedKey ||
         authenticatedKey.apiId !== apiId
     ) {
-        sendGatewayError(
-            response,
-            401,
-            'INVALID_API_KEY',
-            'The supplied API key is invalid for this API.',
-        );
-        return false;
+        return {
+            authenticated: false,
+            code: 'INVALID_API_KEY',
+            message: 'The supplied API key is invalid for this API.',
+        };
     }
 
-    return true;
+    return {
+        authenticated: true,
+        keyId: authenticatedKey.id,
+    };
 }
 
 export async function handleGatewayRequest(
@@ -163,16 +174,74 @@ export async function handleGatewayRequest(
             return;
         }
 
-        if (resolution.api.authRequired) {
-            const authenticated = await authenticateGatewayClient(
-                request,
-                response,
-                resolution.api.id,
-            );
+        const rateLimitConfig = await getGatewayRateLimitConfig(
+            resolution.api.id,
+        );
+        let authentication: GatewayAuthenticationResult | null = null;
 
-            if (!authenticated) {
+        if (resolution.api.authRequired) {
+            try {
+                authentication = await authenticateGatewayClient(
+                    request,
+                    resolution.api.id,
+                );
+            } catch (error) {
+                console.error('Gateway API-key authentication failed:', error);
+                sendGatewayError(
+                    response,
+                    503,
+                    'API_KEY_AUTHENTICATION_UNAVAILABLE',
+                    'API-key authentication is temporarily unavailable.',
+                );
                 return;
             }
+        }
+
+        if (rateLimitConfig.enabled) {
+            const clientIdentity =
+                authentication?.authenticated
+                    ? `api-key:${authentication.keyId}`
+                    : `ip:${request.ip || request.socket.remoteAddress || 'unknown'}`;
+            const rateLimit = await consumeGatewayRateLimit(
+                resolution.api.id,
+                clientIdentity,
+                rateLimitConfig,
+            );
+
+            response.setHeader('X-RateLimit-Limit', String(rateLimit.limit));
+            response.setHeader(
+                'X-RateLimit-Remaining',
+                String(rateLimit.remaining),
+            );
+            response.setHeader('X-RateLimit-Reset', String(rateLimit.resetAt));
+
+            if (!rateLimit.allowed) {
+                const retryAfter = Math.max(
+                    1,
+                    Math.ceil(rateLimit.resetAt - Date.now() / 1000),
+                );
+                response.setHeader('Retry-After', String(retryAfter));
+                sendGatewayError(
+                    response,
+                    429,
+                    'RATE_LIMIT_EXCEEDED',
+                    'The request rate limit has been exceeded.',
+                );
+                return;
+            }
+        }
+
+        if (
+            authentication &&
+            !authentication.authenticated
+        ) {
+            sendGatewayError(
+                response,
+                401,
+                authentication.code,
+                authentication.message,
+            );
+            return;
         }
 
         await proxyGatewayRequest(
@@ -183,6 +252,17 @@ export async function handleGatewayRequest(
             gatewayPath,
         );
     } catch (error) {
+        if (error instanceof RateLimitUnavailableError) {
+            console.error('Gateway rate limiting failed:', error);
+            sendGatewayError(
+                response,
+                503,
+                'RATE_LIMIT_UNAVAILABLE',
+                'Rate limiting is temporarily unavailable.',
+            );
+            return;
+        }
+
         if (
             error instanceof
             GatewayRouteNotFoundError

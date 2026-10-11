@@ -1,4 +1,5 @@
 import database from '../config/database.js';
+import { DEFAULT_RATE_LIMIT } from '../rate-limits/rate-limit-repository.js';
 
 import type {
     Api,
@@ -108,17 +109,29 @@ export async function createApi(
     projectId: string,
     input: CreateApiInput,
 ): Promise<Api> {
-    const [row] = await database<ApiRow>('apis')
-        .insert({
-            project_id: projectId,
-            name: input.name,
-            description: input.description ?? null,
-            upstream_url: input.upstreamUrl,
-            upstream_base_path: input.upstreamBasePath ?? null,
-        })
-        .returning('*');
+    return database.transaction(async (transaction) => {
+        const [row] = await transaction<ApiRow>('apis')
+            .insert({
+                project_id: projectId,
+                name: input.name,
+                description: input.description ?? null,
+                upstream_url: input.upstreamUrl,
+                upstream_base_path: input.upstreamBasePath ?? null,
+            })
+            .returning('*');
 
-    return mapApi(row);
+        await transaction('rate_limit_configs')
+            .insert({
+                api_id: row.id,
+                enabled: true,
+                request_limit: DEFAULT_RATE_LIMIT.maxRequests,
+                window_seconds: DEFAULT_RATE_LIMIT.windowSeconds,
+            })
+            .onConflict('api_id')
+            .ignore();
+
+        return mapApi(row);
+    });
 }
 
 export async function updateApi(

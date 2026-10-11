@@ -11,6 +11,10 @@ import {
     updateApiController,
     updateApiAuthentication,
 } from './api-controller.js';
+import {
+    getApiRateLimitController,
+    updateApiRateLimitController,
+} from '../rate-limits/rate-limit-controller.js';
 
 const router = Router();
 
@@ -54,6 +58,16 @@ router.post(
 router.patch(
     '/apis/:apiId/authentication',
     updateApiAuthentication,
+);
+
+router.get(
+    '/apis/:apiId/rate-limit',
+    getApiRateLimitController,
+);
+
+router.patch(
+    '/apis/:apiId/rate-limit',
+    updateApiRateLimitController,
 );
 
 export default router;
