@@ -1,5 +1,10 @@
 import type { Request, Response } from 'express';
 
+import {
+    getAuditActorRole,
+    sendAuditLogFailure,
+    writeAuditLog,
+} from '../audit/audit-service.js';
 import { rescheduleHealthChecks } from './health-scheduler.js';
 import {
     HealthApiNotActiveError,
@@ -32,6 +37,10 @@ function handleHealthError(
     error: unknown,
     response: Response,
 ): void {
+    if (sendAuditLogFailure(error, response)) {
+        return;
+    }
+
     if (error instanceof HealthConfigValidationError) {
         response.status(400).json({
             error: {
@@ -145,6 +154,14 @@ export async function patchApiHealthConfigController(
             updates,
         );
         rescheduleHealthChecks();
+        await writeAuditLog({
+            actorUserId: response.locals.user.id,
+            actorRole: getAuditActorRole(response.locals.user.isAdmin),
+            action: 'HEALTH_CHECK_CONFIG_UPDATED',
+            resourceType: 'API',
+            resourceId: request.params.apiId,
+            ipAddress: request.socket.remoteAddress,
+        });
         response.status(200).json({ data: config });
     } catch (error) {
         handleHealthError(error, response);

@@ -1,5 +1,10 @@
 
 import type { Request, Response } from 'express';
+import {
+    getAuditActorRole,
+    sendAuditLogFailure,
+    writeAuditLog,
+} from '../audit/audit-service.js';
 
 import {
     ApiKeyNotFoundError,
@@ -13,6 +18,10 @@ function handleApiKeyError(
     error: unknown,
     response: Response,
 ): void {
+    if (sendAuditLogFailure(error, response)) {
+        return;
+    }
+
     if (error instanceof ApiKeyValidationError) {
         response.status(400).json({
             error: {
@@ -53,6 +62,15 @@ export async function createApiKeyController(
             request.params.apiId,
             request.body,
         );
+        await writeAuditLog({
+            actorUserId: response.locals.user.id,
+            actorRole: getAuditActorRole(response.locals.user.isAdmin),
+            action: 'API_KEY_CREATED',
+            resourceType: 'API_KEY',
+            resourceId: result.apiKey.id,
+            metadata: { apiId: result.apiKey.apiId },
+            ipAddress: request.socket.remoteAddress,
+        });
 
         response.status(201).json({
             data: result,
@@ -89,6 +107,14 @@ export async function revokeApiKeyController(
             response.locals.user.id,
             request.params.apiKeyId,
         );
+        await writeAuditLog({
+            actorUserId: response.locals.user.id,
+            actorRole: getAuditActorRole(response.locals.user.isAdmin),
+            action: 'API_KEY_REVOKED',
+            resourceType: 'API_KEY',
+            resourceId: request.params.apiKeyId,
+            ipAddress: request.socket.remoteAddress,
+        });
 
         response.status(204).send();
     } catch (error) {

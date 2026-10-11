@@ -142,6 +142,7 @@ function copyRequestHeaders(
         if (
             HOP_BY_HOP_HEADERS.has(lowerName) ||
             lowerName === 'host' ||
+            lowerName === 'x-request-id' ||
             lowerName === 'x-api-key'
         ) {
             continue;
@@ -183,6 +184,7 @@ function copyResponseHeaders(
 
         if (
             HOP_BY_HOP_HEADERS.has(lowerName) ||
+            lowerName === 'x-request-id' ||
             value === undefined
         ) {
             continue;

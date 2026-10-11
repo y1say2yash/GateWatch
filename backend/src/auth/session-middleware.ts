@@ -1,6 +1,10 @@
 import type { NextFunction, Request, Response } from 'express';
 
 import {
+    sendAuditLogFailure,
+    writeAuditLog,
+} from '../audit/audit-service.js';
+import {
     SESSION_COOKIE_NAME,
     getAuthenticatedUser,
 } from './session-service.js';
@@ -14,6 +18,14 @@ export async function requireAuthentication(
         const sessionToken = request.cookies?.[SESSION_COOKIE_NAME];
 
         if (!sessionToken) {
+            await writeAuditLog({
+                actorUserId: null,
+                actorRole: null,
+                action: 'AUTHENTICATION_FAILED',
+                resourceType: 'SESSION',
+                metadata: { reason: 'SESSION_REQUIRED' },
+                ipAddress: request.socket.remoteAddress,
+            });
             response.status(401).json({
                 error: {
                     code: 'AUTHENTICATION_REQUIRED',
@@ -33,6 +45,14 @@ export async function requireAuthentication(
                 sameSite: 'lax',
                 path: '/',
             });
+            await writeAuditLog({
+                actorUserId: null,
+                actorRole: null,
+                action: 'AUTHENTICATION_FAILED',
+                resourceType: 'SESSION',
+                metadata: { reason: 'INVALID_SESSION' },
+                ipAddress: request.socket.remoteAddress,
+            });
 
             response.status(401).json({
                 error: {
@@ -48,6 +68,9 @@ export async function requireAuthentication(
 
         next();
     } catch (error) {
+        if (sendAuditLogFailure(error, response)) {
+            return;
+        }
         console.error('Session authentication failed:', error);
 
         response.status(500).json({

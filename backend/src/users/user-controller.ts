@@ -1,5 +1,11 @@
 import type { Request, Response } from 'express';
 
+import {
+    AuditLogWriteError,
+    getAuditActorRole,
+    sendAuditLogFailure,
+    writeAuditLog,
+} from '../audit/audit-service.js';
 import { deleteUserAccount, getUserProfile } from './user-service.js';
 
 export async function getCurrentUserProfile(
@@ -25,11 +31,19 @@ export async function getCurrentUserProfile(
 }
 
 export async function deleteCurrentUser(
-    _request: Request,
+    request: Request,
     response: Response,
 ): Promise<void> {
     try {
         await deleteUserAccount(response.locals.user);
+        await writeAuditLog({
+            actorUserId: response.locals.user.id,
+            actorRole: getAuditActorRole(response.locals.user.isAdmin),
+            action: 'USER_ACCOUNT_DELETED',
+            resourceType: 'USER',
+            resourceId: response.locals.user.id,
+            ipAddress: request.socket.remoteAddress,
+        });
 
         response.clearCookie('gatewatch_session', {
             httpOnly: true,
@@ -40,6 +54,16 @@ export async function deleteCurrentUser(
 
         response.status(204).send();
     } catch (error) {
+        if (error instanceof AuditLogWriteError) {
+            response.clearCookie('gatewatch_session', {
+                httpOnly: true,
+                secure: process.env.NODE_ENV === 'production',
+                sameSite: 'lax',
+                path: '/',
+            });
+            sendAuditLogFailure(error, response);
+            return;
+        }
         console.error('Failed to delete user account:', error);
 
         response.status(500).json({

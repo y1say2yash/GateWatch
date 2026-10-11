@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { Request, Response } from 'express';
 
 import type { ApiRoute } from '../routes/route-types.js';
@@ -21,6 +22,7 @@ import {
     getGatewayRateLimitConfig,
     RateLimitUnavailableError,
 } from '../rate-limits/rate-limit-service.js';
+import { recordGatewayRequest } from '../request-history/request-history-repository.js';
 
 type GatewayAuthenticationResult =
     | { authenticated: true; keyId: string }
@@ -83,6 +85,10 @@ function sendGatewayError(
         return;
     }
 
+    response.locals.gatewayResult = {
+        source: 'gateway',
+        errorCode: code,
+    };
     response.status(status).json({
         error: {
             code,
@@ -135,6 +141,13 @@ export async function handleGatewayRequest(
 ): Promise<void> {
     const projectSlug = getProjectSlug(request);
     const gatewayPath = getGatewayPath(request);
+    const startedAt = process.hrtime.bigint();
+    let historyContext: {
+        requestId: string;
+        apiId: string;
+        routeId: string;
+        clientIdentity: string | null;
+    } | null = null;
 
     if (!projectSlug) {
         sendGatewayError(
@@ -163,6 +176,16 @@ export async function handleGatewayRequest(
                 gatewayPath,
                 request.method,
             );
+
+        const requestId = randomUUID();
+        historyContext = {
+            requestId,
+            apiId: resolution.api.id,
+            routeId: resolution.route.id,
+            clientIdentity: `ip:${request.ip || request.socket.remoteAddress || 'unknown'}`,
+        };
+        response.setHeader('X-Request-ID', requestId);
+        request.headers['x-request-id'] = requestId;
 
         if (resolution.api.status === 'DISABLED') {
             sendGatewayError(
@@ -244,6 +267,10 @@ export async function handleGatewayRequest(
             return;
         }
 
+        if (authentication?.authenticated) {
+            historyContext.clientIdentity = `api-key:${authentication.keyId}`;
+        }
+
         await proxyGatewayRequest(
             request,
             response,
@@ -251,6 +278,7 @@ export async function handleGatewayRequest(
             resolution.route,
             gatewayPath,
         );
+        response.locals.gatewayResult = { source: 'upstream' };
     } catch (error) {
         if (error instanceof RateLimitUnavailableError) {
             console.error('Gateway rate limiting failed:', error);
@@ -339,5 +367,40 @@ export async function handleGatewayRequest(
             'GATEWAY_REQUEST_FAILED',
             'Gateway request failed.',
         );
+    } finally {
+        if (historyContext) {
+            const elapsedMs = Number(
+                (process.hrtime.bigint() - startedAt) / 1_000_000n,
+            );
+            const result = response.locals.gatewayResult;
+            const resultMetadata: Record<string, string> =
+                result && typeof result === 'object'
+                    ? {
+                        source:
+                            'source' in result &&
+                            typeof result.source === 'string'
+                                ? result.source
+                                : 'gateway',
+                        ...( 'errorCode' in result &&
+                        typeof result.errorCode === 'string'
+                            ? { errorCode: result.errorCode }
+                            : {}),
+                    }
+                    : { source: 'gateway' };
+
+            try {
+                await recordGatewayRequest({
+                    ...historyContext,
+                    method: request.method,
+                    path: gatewayPath,
+                    statusCode: response.statusCode,
+                    latencyMs: elapsedMs,
+                    timestamp: new Date(),
+                    result: resultMetadata,
+                });
+            } catch {
+                console.error('Gateway request history could not be recorded.');
+            }
+        }
     }
 }

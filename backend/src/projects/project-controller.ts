@@ -12,8 +12,17 @@ import {
 } from './project-service.js';
 
 import { ProjectValidationError } from './project-validation.js';
+import {
+    getAuditActorRole,
+    sendAuditLogFailure,
+    writeAuditLog,
+} from '../audit/audit-service.js';
 
 function handleProjectError(error: unknown, response: Response): void {
+    if (sendAuditLogFailure(error, response)) {
+        return;
+    }
+
     if (error instanceof ProjectValidationError) {
         response.status(400).json({
             error: {
@@ -96,6 +105,14 @@ export async function createProject(
             userId,
             request.body,
         );
+        await writeAuditLog({
+            actorUserId: userId,
+            actorRole: getAuditActorRole(response.locals.user.isAdmin),
+            action: 'PROJECT_CREATED',
+            resourceType: 'PROJECT',
+            resourceId: project.id,
+            ipAddress: request.socket.remoteAddress,
+        });
 
         response.status(201).json({
             data: project,
@@ -137,6 +154,14 @@ export async function updateProject(
             request.params.id,
             request.body,
         );
+        await writeAuditLog({
+            actorUserId: userId,
+            actorRole: getAuditActorRole(response.locals.user.isAdmin),
+            action: 'PROJECT_UPDATED',
+            resourceType: 'PROJECT',
+            resourceId: project.id,
+            ipAddress: request.socket.remoteAddress,
+        });
 
         response.status(200).json({
             data: project,
@@ -157,6 +182,14 @@ export async function deleteProject(
             userId,
             request.params.id,
         );
+        await writeAuditLog({
+            actorUserId: userId,
+            actorRole: getAuditActorRole(response.locals.user.isAdmin),
+            action: 'PROJECT_DELETED',
+            resourceType: 'PROJECT',
+            resourceId: request.params.id,
+            ipAddress: request.socket.remoteAddress,
+        });
 
         response.status(204).send();
     } catch (error) {
