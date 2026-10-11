@@ -292,7 +292,8 @@ GateWatch shall handle upstream request timeouts and return an appropriate timeo
 
 ### FR-TEST-001 — API Test Definition
 
-Users shall be able to create HTTP API tests containing:
+Users shall be able to create, list, view, update, and soft-delete HTTP API
+test definitions for APIs they own. A definition contains:
 
 **Request definition**
 
@@ -301,19 +302,30 @@ Users shall be able to create HTTP API tests containing:
 - Headers
 - Request body
 - Authentication
+- A configured timeout (default 5 seconds, maximum 30 seconds)
 
 **Assertions**
 
 - Status code
-- Response body
+- JSON response body paths
 - Response headers
 - Response time
 
-### FR-TEST-002 — Manual Test Execution
+Test targets must use HTTP or HTTPS, have no embedded URL credentials, and
+match the configured upstream API origin. Loopback, private, link-local, and
+metadata targets are rejected unless an explicit non-production allowlist is
+configured. Authentication secrets are encrypted at rest and are never
+returned by management APIs.
+
+The M23 implementation provides backend management endpoints only. A
+user-facing test-definition interface is deferred until the frontend
+foundation is established.
+
+### FR-TEST-002 — Manual Test Execution (M24)
 
 Users shall be able to execute tests manually through the GateWatch interface.
 
-### FR-TEST-003 — CI/CD Test Execution
+### FR-TEST-003 — CI/CD Test Execution (M25)
 
 GateWatch shall expose an authenticated API through which CI/CD systems can trigger tests.
 

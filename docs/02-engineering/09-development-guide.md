@@ -1647,3 +1647,21 @@ Request-history, monitoring, and audit persistence tests require a reachable
 PostgreSQL database with the latest migrations applied (`npm run db:migrate`).
 The gateway tests use local loopback HTTP servers as upstreams; they do not
 persist request or response bodies.
+
+### API test definition credentials
+
+M23 requires `TEST_CREDENTIAL_ENCRYPTION_KEY` when storing Basic, Bearer, or
+custom API-key credentials in a test definition. Configure a 32-byte key as
+64 hexadecimal characters in the local environment; never commit the value.
+Production deployments must provision and rotate this key through their
+secret-management process. `TEST_LOCAL_ALLOWED_ORIGINS` is an optional
+comma-separated origin allowlist accepted only outside production for local
+demo APIs.
+
+Migration `08_add_api_test_definition_fields.ts` adds definition fields and
+removes legacy execution response-body/header columns only when both columns
+contain no non-null values. It aborts before schema changes if such historical
+data exists; review the current database status before applying it. It never
+deletes execution rows. M23 adds backend management endpoints only. The
+user-facing test-definition interface is deferred until the frontend
+foundation is established.

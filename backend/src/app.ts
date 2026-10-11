@@ -11,6 +11,7 @@ import routeRoutes from './routes/route-routes.js';
 import gatewayRoutes from './gateway/gateway-routes.js';
 import apiKeyRoutes from './api-keys/api-key-routes.js';
 import adminRoutes from './admin/admin-routes.js';
+import testRoutes from './tests/test-routes.js';
 
 const app = express();
 
@@ -29,6 +30,7 @@ app.use('/api/v1', apiRoutes);
 app.use('/api/v1', routeRoutes);
 app.use('/api/v1', apiKeyRoutes);
 app.use('/api/v1/admin', adminRoutes);
+app.use('/api/v1', testRoutes);
 
 app.get('/api/health', async (_req, res) => {
     const dependencies = {
