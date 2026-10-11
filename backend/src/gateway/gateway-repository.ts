@@ -13,6 +13,7 @@ interface GatewayRouteRow {
     api_upstream_url: string;
     api_upstream_base_path: string | null;
     api_status: Api['status'];
+    api_auth_required: boolean;
     api_version: number;
     api_created_at: Date;
     api_updated_at: Date;
@@ -34,6 +35,7 @@ function mapApi(row: GatewayRouteRow): Api {
         upstreamUrl: row.api_upstream_url,
         upstreamBasePath: row.api_upstream_base_path,
         status: row.api_status,
+        authRequired: row.api_auth_required,
         version: row.api_version,
         createdAt: row.api_created_at.toISOString(),
         updatedAt: row.api_updated_at.toISOString(),
@@ -86,6 +88,7 @@ export async function findGatewayRoutes(
             'apis.upstream_base_path as api_upstream_base_path',
             'apis.status as api_status',
             'apis.version as api_version',
+            'apis.auth_required as api_auth_required',
             'apis.created_at as api_created_at',
             'apis.updated_at as api_updated_at',
             'apis.deleted_at as api_deleted_at',

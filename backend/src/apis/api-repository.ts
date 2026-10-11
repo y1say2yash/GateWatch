@@ -1,4 +1,5 @@
 import database from '../config/database.js';
+import { DEFAULT_RATE_LIMIT } from '../rate-limits/rate-limit-repository.js';
 
 import type {
     Api,
@@ -14,6 +15,7 @@ interface ApiRow {
     upstream_url: string;
     upstream_base_path: string | null;
     status: Api['status'];
+    auth_required: boolean;
     version: number;
     created_at: Date;
     updated_at: Date;
@@ -29,6 +31,7 @@ function mapApi(row: ApiRow): Api {
         upstreamUrl: row.upstream_url,
         upstreamBasePath: row.upstream_base_path,
         status: row.status,
+        authRequired: row.auth_required,
         version: row.version,
         createdAt: row.created_at.toISOString(),
         updatedAt: row.updated_at.toISOString(),
@@ -106,17 +109,29 @@ export async function createApi(
     projectId: string,
     input: CreateApiInput,
 ): Promise<Api> {
-    const [row] = await database<ApiRow>('apis')
-        .insert({
-            project_id: projectId,
-            name: input.name,
-            description: input.description ?? null,
-            upstream_url: input.upstreamUrl,
-            upstream_base_path: input.upstreamBasePath ?? null,
-        })
-        .returning('*');
+    return database.transaction(async (transaction) => {
+        const [row] = await transaction<ApiRow>('apis')
+            .insert({
+                project_id: projectId,
+                name: input.name,
+                description: input.description ?? null,
+                upstream_url: input.upstreamUrl,
+                upstream_base_path: input.upstreamBasePath ?? null,
+            })
+            .returning('*');
 
-    return mapApi(row);
+        await transaction('rate_limit_configs')
+            .insert({
+                api_id: row.id,
+                enabled: true,
+                request_limit: DEFAULT_RATE_LIMIT.maxRequests,
+                window_seconds: DEFAULT_RATE_LIMIT.windowSeconds,
+            })
+            .onConflict('api_id')
+            .ignore();
+
+        return mapApi(row);
+    });
 }
 
 export async function updateApi(
@@ -231,4 +246,34 @@ export async function softDeleteApi(
 
         return true;
     });
+}
+
+export async function updateApiAuthenticationRequired(
+    userId: string,
+    apiId: string,
+    authRequired: boolean,
+): Promise<Api | null> {
+    const [row] = await database<ApiRow>('apis')
+        .where('apis.id', apiId)
+        .whereIn(
+            'apis.project_id',
+            database('projects')
+                .select('projects.id')
+                .where('projects.user_id', userId)
+                .whereNull('projects.deleted_at'),
+        )
+        .whereIn('apis.status', [
+            'REGISTERED',
+            'ACTIVE',
+            'DISABLED',
+        ])
+        .whereNull('apis.deleted_at')
+        .update({
+            auth_required: authRequired,
+            version: database.raw('version + 1'),
+            updated_at: database.fn.now(),
+        })
+        .returning('*');
+
+    return row ? mapApi(row) : null;
 }

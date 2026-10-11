@@ -9,7 +9,12 @@ import {
     getApi,
     listApis,
     updateApiController,
+    updateApiAuthentication,
 } from './api-controller.js';
+import {
+    getApiRateLimitController,
+    updateApiRateLimitController,
+} from '../rate-limits/rate-limit-controller.js';
 
 const router = Router();
 
@@ -48,6 +53,21 @@ router.post(
 router.post(
     '/apis/:apiId/disable',
     disableApi,
+);
+
+router.patch(
+    '/apis/:apiId/authentication',
+    updateApiAuthentication,
+);
+
+router.get(
+    '/apis/:apiId/rate-limit',
+    getApiRateLimitController,
+);
+
+router.patch(
+    '/apis/:apiId/rate-limit',
+    updateApiRateLimitController,
 );
 
 export default router;

@@ -6,6 +6,7 @@ import {
     softDeleteApi,
     updateApi,
     updateApiStatus,
+    updateApiAuthenticationRequired,
 } from './api-repository.js';
 
 import type {
@@ -170,6 +171,24 @@ export async function disableUserApi(
         userId,
         apiId,
         'DISABLED',
+    );
+
+    if (!api) {
+        throw new ApiNotFoundError('API not found.');
+    }
+
+    return api;
+}
+
+export async function setUserApiAuthenticationRequired(
+    userId: string,
+    apiId: string,
+    authRequired: boolean,
+) {
+    const api = await updateApiAuthenticationRequired(
+        userId,
+        apiId,
+        authRequired,
     );
 
     if (!api) {

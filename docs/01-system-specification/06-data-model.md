@@ -113,9 +113,10 @@ erDiagram
     }
 
     RATE_LIMIT_CONFIGS {
-        uuid rate_limit_config_id PK
+        uuid id PK
         uuid api_id FK
-        integer max_requests
+        boolean enabled
+        integer request_limit
         integer window_seconds
         timestamp created_at
         timestamp updated_at
@@ -457,14 +458,20 @@ GateWatch API keys are intended for trusted server-side clients. They must not b
 
 | Column | Type | Constraints |
 | --- | --- | --- |
-| `rate_limit_config_id` | UUID | PK |
+| `id` | UUID | PK |
 | `api_id` | UUID | UNIQUE, FK |
-| `max_requests` | INTEGER | NOT NULL |
+| `enabled` | BOOLEAN | NOT NULL, DEFAULT TRUE |
+| `request_limit` | INTEGER | NOT NULL, CHECK > 0 |
 | `window_seconds` | INTEGER | NOT NULL |
 | `created_at` | TIMESTAMPTZ | NOT NULL |
 | `updated_at` | TIMESTAMPTZ | NOT NULL |
 
-One configuration exists per API.
+One configuration exists per API. Newly registered APIs start enabled with a
+limit of 100 requests per 60 seconds. When `enabled` is false, gateway requests
+are not counted or rejected by rate limiting; API-key authentication remains
+independent. When enabled, Redis fixed-window counters are scoped to the API
+and authenticated API-key ID, or to the client IP for public APIs and
+unauthenticated attempts.
 
 ### 5.9 `health_check_configs`
 
