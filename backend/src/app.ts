@@ -9,6 +9,7 @@ import projectRoutes from './projects/project-routes.js';
 import apiRoutes from './apis/api-routes.js';
 import routeRoutes from './routes/route-routes.js';
 import gatewayRoutes from './gateway/gateway-routes.js';
+import apiKeyRoutes from './api-keys/api-key-routes.js';
 
 const app = express();
 
@@ -23,6 +24,7 @@ app.use('/api/v1/users', userRoutes);
 app.use('/api/v1/projects', projectRoutes);
 app.use('/api/v1', apiRoutes);
 app.use('/api/v1', routeRoutes);
+app.use('/api/v1', apiKeyRoutes);
 
 app.get('/api/health', async (_req, res) => {
     const dependencies = {
