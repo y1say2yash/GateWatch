@@ -79,12 +79,14 @@ erDiagram
     }
 
     APIS {
-        uuid api_id PK
+        uuid id PK
         uuid project_id FK
         string name
         string description
-        text base_url
+        string upstream_url
+        string upstream_base_path
         enum status
+        integer version
         enum health_status
         timestamp last_health_check_at
         timestamp created_at
@@ -123,9 +125,15 @@ erDiagram
     }
 
     HEALTH_CHECK_CONFIGS {
-        uuid health_check_config_id PK
+        uuid id PK
         uuid api_id FK
-        jsonb configuration
+        boolean enabled
+        string path
+        integer interval_seconds
+        integer timeout_ms
+        integer expected_status_min
+        integer expected_status_max
+        integer latency_threshold_ms
         timestamp created_at
         timestamp updated_at
     }
@@ -172,15 +180,14 @@ erDiagram
     }
 
     HEALTH_CHECKS {
-        uuid health_check_id PK
+        uuid id PK
         uuid api_id FK
         enum status
         integer response_time_ms
-        integer http_status
+        integer response_status
         integer attempt_count
-        string error_code
         text error_message
-        enum trigger_type
+        boolean is_manual
         timestamp checked_at
     }
 
@@ -404,19 +411,23 @@ gatewatch.com/p/{project-slug}/{path}
 
 | Column | Type | Constraints |
 | --- | --- | --- |
-| `api_id` | UUID | PK |
-| `project_id` | UUID | FK |
-| `name` | VARCHAR | NOT NULL |
+| `id` | UUID | PK |
+| `project_id` | UUID | NOT NULL, FK |
+| `name` | VARCHAR(100) | NOT NULL |
 | `description` | TEXT | NULL |
-| `base_url` | TEXT | NOT NULL |
-| `status` | API_STATUS | NOT NULL |
-| `health_status` | HEALTH_STATUS | NOT NULL |
+| `upstream_url` | VARCHAR(2048) | NOT NULL |
+| `upstream_base_path` | VARCHAR(2048) | NULL |
+| `status` | API_STATUS | NOT NULL, DEFAULT `REGISTERED` |
+| `auth_required` | BOOLEAN | NOT NULL, DEFAULT FALSE |
+| `version` | INTEGER | NOT NULL, DEFAULT 1 |
+| `health_status` | HEALTH_STATUS | NOT NULL, DEFAULT `DOWN` |
 | `last_health_check_at` | TIMESTAMPTZ | NULL |
 | `created_at` | TIMESTAMPTZ | NOT NULL |
 | `updated_at` | TIMESTAMPTZ | NOT NULL |
 | `deleted_at` | TIMESTAMPTZ | NULL |
 
-`base_url` is validated by the application.
+`health_status` and `last_health_check_at` are added by migration
+`05_add_health_monitoring_state.ts`; lifecycle status remains independent.
 
 ### 5.6 `api_routes`
 
@@ -477,13 +488,23 @@ unauthenticated attempts.
 
 | Column | Type | Constraints |
 | --- | --- | --- |
-| `health_check_config_id` | UUID | PK |
+| `id` | UUID | PK |
 | `api_id` | UUID | UNIQUE, FK |
-| `configuration` | JSONB | NOT NULL |
+| `enabled` | BOOLEAN | NOT NULL, DEFAULT TRUE |
+| `path` | VARCHAR(2048) | NOT NULL, DEFAULT `/` |
+| `interval_seconds` | INTEGER | NOT NULL, DEFAULT 60 |
+| `timeout_ms` | INTEGER | NOT NULL, DEFAULT 5000 |
+| `expected_status_min` | INTEGER | NOT NULL, DEFAULT 200 |
+| `expected_status_max` | INTEGER | NOT NULL, DEFAULT 299 |
+| `latency_threshold_ms` | INTEGER | NOT NULL, DEFAULT 1000 |
 | `created_at` | TIMESTAMPTZ | NOT NULL |
 | `updated_at` | TIMESTAMPTZ | NOT NULL |
 
-The system-level automatic health-check interval is 60 seconds and is not stored on individual health-check execution records.
+New APIs are configured for checks every 60 seconds with a 5-second timeout.
+The MVP classifies an API as `HEALTHY` when its final response falls in the
+configured expected-status range and total attempt latency does not exceed
+`latency_threshold_ms`. A successful retry or latency above the threshold is
+`DEGRADED`; failure to receive an expected response after the retry is `DOWN`.
 
 ### 5.10 `tests`
 
@@ -546,16 +567,20 @@ Complete request and response bodies are not persisted by default.
 
 | Column | Type | Constraints |
 | --- | --- | --- |
-| `health_check_id` | UUID | PK |
+| `id` | UUID | PK |
 | `api_id` | UUID | FK |
 | `status` | HEALTH_STATUS | NOT NULL |
 | `response_time_ms` | INTEGER | NULL |
-| `http_status` | INTEGER | NULL |
-| `attempt_count` | INTEGER | NOT NULL |
-| `error_code` | VARCHAR | NULL |
+| `response_status` | INTEGER | NULL |
+| `attempt_count` | INTEGER | NOT NULL, DEFAULT 1 |
 | `error_message` | TEXT | NULL |
-| `trigger_type` | HEALTH_CHECK_TRIGGER | NOT NULL |
+| `is_manual` | BOOLEAN | NOT NULL, DEFAULT FALSE |
 | `checked_at` | TIMESTAMPTZ | NOT NULL |
+
+Health-check records contain summarized outcomes only; response bodies are not
+stored. `apis.health_status` and `apis.last_health_check_at` are updated in
+the same transaction as each persisted result. The API lifecycle status is
+independent from its health status.
 
 ### 5.14 `alerts`
 

@@ -400,7 +400,8 @@ AWS CloudWatch shall be used for operational logging and monitoring in the deplo
 
 ### FR-MON-001 — Automatic Health Checks
 
-GateWatch shall perform automatic health checks for registered APIs at a 60-second interval.
+GateWatch shall perform automatic health checks for active APIs at a configurable
+per-API interval, defaulting to 60 seconds.
 
 ### FR-MON-002 — Manual Health Checks
 

@@ -15,6 +15,13 @@ import {
     getApiRateLimitController,
     updateApiRateLimitController,
 } from '../rate-limits/rate-limit-controller.js';
+import {
+    getApiHealthConfigController,
+    getApiHealthHistoryController,
+    getApiHealthStatusController,
+    patchApiHealthConfigController,
+    postApiHealthCheckController,
+} from '../health/health-controller.js';
 
 const router = Router();
 
@@ -68,6 +75,31 @@ router.get(
 router.patch(
     '/apis/:apiId/rate-limit',
     updateApiRateLimitController,
+);
+
+router.get(
+    '/apis/:apiId/health',
+    getApiHealthConfigController,
+);
+
+router.patch(
+    '/apis/:apiId/health',
+    patchApiHealthConfigController,
+);
+
+router.post(
+    '/apis/:apiId/health/check',
+    postApiHealthCheckController,
+);
+
+router.get(
+    '/apis/:apiId/health/status',
+    getApiHealthStatusController,
+);
+
+router.get(
+    '/apis/:apiId/health/history',
+    getApiHealthHistoryController,
 );
 
 export default router;

@@ -485,11 +485,25 @@ GET   /api/v1/apis/:apiId/health
 PATCH /api/v1/apis/:apiId/health
 ```
 
+These endpoints require an authenticated user and are scoped to APIs owned by
+that user. Configuration fields are `enabled`, `path`, `intervalSeconds`,
+`timeoutMs`, `expectedStatusMin`, `expectedStatusMax`, and
+`latencyThresholdMs`. PATCH accepts any non-empty subset and rejects unknown
+fields. Defaults for new APIs are enabled checks at `/`, every 60 seconds,
+with a 5-second timeout, expected HTTP status 200-299, and a 1,000 ms latency
+threshold. The configured interval is validated from 1 to 86,400 seconds and
+is honored per API, including intervals shorter than 60 seconds. The scheduler
+waits until the next API is due rather than polling on a fixed 60-second tick.
+Attempt timeouts are capped at 5 seconds.
+
 ### Current Health
 
 ```
 GET /api/v1/apis/:apiId/health/status
 ```
+
+Returns the current `healthStatus`, `lastHealthCheckAt`, and latest summarized
+check, if available.
 
 ### Manual Health Check
 
@@ -497,11 +511,24 @@ GET /api/v1/apis/:apiId/health/status
 POST /api/v1/apis/:apiId/health/check
 ```
 
+Runs the same retry, timeout, classification, and persistence flow as the
+scheduler. A check already running for that API returns `409`.
+
 ### Health History
 
 ```
 GET /api/v1/apis/:apiId/health/history
 ```
+
+Accepts an optional `limit` from 1 to 100 (default 20) and returns checks
+newest first, including result status, response time, HTTP status, attempt
+count, safe error message, `isManual`, and timestamp. Response bodies are
+never included.
+
+The MVP classifies a check as `HEALTHY` when its final HTTP status falls in the
+configured expected range and total check latency is at or below the configured
+threshold. A successful retry or a slower expected response is `DEGRADED`;
+failure to obtain an expected response after one retry is `DOWN`.
 
 ### 11.7 Tests
 
