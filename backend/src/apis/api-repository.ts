@@ -1,4 +1,5 @@
 import database from '../config/database.js';
+import { DEFAULT_HEALTH_CHECK_CONFIG } from '../health/health-config-repository.js';
 import { DEFAULT_RATE_LIMIT } from '../rate-limits/rate-limit-repository.js';
 
 import type {
@@ -126,6 +127,24 @@ export async function createApi(
                 enabled: true,
                 request_limit: DEFAULT_RATE_LIMIT.maxRequests,
                 window_seconds: DEFAULT_RATE_LIMIT.windowSeconds,
+            })
+            .onConflict('api_id')
+            .ignore();
+
+        await transaction('health_check_configs')
+            .insert({
+                api_id: row.id,
+                enabled: DEFAULT_HEALTH_CHECK_CONFIG.enabled,
+                path: DEFAULT_HEALTH_CHECK_CONFIG.path,
+                interval_seconds:
+                    DEFAULT_HEALTH_CHECK_CONFIG.intervalSeconds,
+                timeout_ms: DEFAULT_HEALTH_CHECK_CONFIG.timeoutMs,
+                expected_status_min:
+                    DEFAULT_HEALTH_CHECK_CONFIG.expectedStatusMin,
+                expected_status_max:
+                    DEFAULT_HEALTH_CHECK_CONFIG.expectedStatusMax,
+                latency_threshold_ms:
+                    DEFAULT_HEALTH_CHECK_CONFIG.latencyThresholdMs,
             })
             .onConflict('api_id')
             .ignore();
