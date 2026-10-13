@@ -8,6 +8,7 @@ import { after, before, mock, test } from 'node:test';
 
 import adminRoutes from '../src/admin/admin-routes.js';
 import database from '../src/config/database.js';
+import { nextTestGithubId } from './test-user-identity.js';
 
 const FIXTURE_FROM = new Date('2090-01-01T00:00:00.000Z');
 const FIXTURE_TO = new Date('2090-01-01T00:01:45.000Z');
@@ -75,7 +76,7 @@ before(async () => {
     const suffix = randomBytes(8).toString('hex');
     const [admin] = await database<{ id: string }>('users')
         .insert({
-            github_id: String(Date.now() * 10 + 31),
+            github_id: nextTestGithubId(),
             github_username: `audit-admin-${suffix}`,
             is_admin: true,
         })
@@ -84,7 +85,7 @@ before(async () => {
 
     const [normal] = await database<{ id: string }>('users')
         .insert({
-            github_id: String(Date.now() * 10 + 32),
+            github_id: nextTestGithubId(),
             github_username: `audit-user-${suffix}`,
             is_admin: false,
         })

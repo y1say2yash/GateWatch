@@ -4,6 +4,7 @@ import cookieParser from 'cookie-parser';
 import database from './config/database.js';
 import redis from './config/redis.js';
 import authRoutes from './auth/auth-routes.js';
+import accessTokenRoutes from './auth/access-token-routes.js';
 import userRoutes from './users/user-routes.js';
 import projectRoutes from './projects/project-routes.js';
 import apiRoutes from './apis/api-routes.js';
@@ -24,13 +25,14 @@ app.use(gatewayRoutes);
 app.use(express.json());
 
 app.use('/api/v1/auth', authRoutes);
+app.use('/api/v1', accessTokenRoutes);
 app.use('/api/v1/users', userRoutes);
 app.use('/api/v1/projects', projectRoutes);
+app.use('/api/v1', testRoutes);
 app.use('/api/v1', apiRoutes);
 app.use('/api/v1', routeRoutes);
 app.use('/api/v1', apiKeyRoutes);
 app.use('/api/v1/admin', adminRoutes);
-app.use('/api/v1', testRoutes);
 
 app.get('/api/health', async (_req, res) => {
     const dependencies = {

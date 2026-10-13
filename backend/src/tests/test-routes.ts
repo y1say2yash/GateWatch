@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import type { NextFunction, Request, Response } from 'express';
 
+import { requireSessionOrAccessToken } from '../auth/access-token-middleware.js';
 import { requireAuthentication } from '../auth/session-middleware.js';
 import {
     createTestController,
@@ -35,12 +36,42 @@ function validateResourceId(
     next();
 }
 
-router.use(requireAuthentication);
-router.get('/apis/:apiId/tests', validateResourceId, listTestsController);
-router.post('/apis/:apiId/tests', validateResourceId, createTestController);
-router.get('/tests/:testId', validateResourceId, getTestController);
-router.patch('/tests/:testId', validateResourceId, updateTestController);
-router.delete('/tests/:testId', validateResourceId, deleteTestController);
-router.post('/tests/:testId/execute', validateResourceId, executeTestController);
+router.post(
+    '/tests/:testId/execute',
+    requireSessionOrAccessToken,
+    validateResourceId,
+    executeTestController,
+);
+
+router.get(
+    '/apis/:apiId/tests',
+    requireAuthentication,
+    validateResourceId,
+    listTestsController,
+);
+router.post(
+    '/apis/:apiId/tests',
+    requireAuthentication,
+    validateResourceId,
+    createTestController,
+);
+router.get(
+    '/tests/:testId',
+    requireAuthentication,
+    validateResourceId,
+    getTestController,
+);
+router.patch(
+    '/tests/:testId',
+    requireAuthentication,
+    validateResourceId,
+    updateTestController,
+);
+router.delete(
+    '/tests/:testId',
+    requireAuthentication,
+    validateResourceId,
+    deleteTestController,
+);
 
 export default router;

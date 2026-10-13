@@ -7,6 +7,7 @@ import { after, before, test } from 'node:test';
 import app from '../src/app.js';
 import database from '../src/config/database.js';
 import { describeAuthentication } from '../src/tests/test-credentials.js';
+import { nextTestGithubId } from './test-user-identity.js';
 
 interface TestResponse {
     data: {
@@ -26,13 +27,11 @@ let otherApiId: string;
 let ownerCookie: string;
 let otherCookie: string;
 let adminCookie: string;
-let githubIdCounter = 0;
-
 async function createUser(isAdmin = false): Promise<{ id: string; cookie: string }> {
     const suffix = crypto.randomUUID();
     const [user] = await database<{ id: string }>('users')
         .insert({
-            github_id: String(Date.now() * 1_000 + githubIdCounter++),
+            github_id: nextTestGithubId(),
             github_username: `test-def-${suffix}`,
             is_admin: isAdmin,
         })

@@ -401,11 +401,18 @@ Deletion is implemented as soft deletion.
 POST /api/v1/users/me/access-tokens
 ```
 
+Requires a GateWatch session. The JSON body accepts a required `name` (1–100
+characters) and optional `expiresAt` (a future ISO 8601 timestamp; omit or set
+to `null` for no expiration). The complete bearer token is returned only in the
+creation response; subsequent list responses expose metadata only.
+
 ### List Access Tokens
 
 ```
 GET /api/v1/users/me/access-tokens
 ```
+
+Requires a GateWatch session and lists only the current user's access tokens.
 
 ### Revoke Access Token
 
@@ -413,7 +420,7 @@ GET /api/v1/users/me/access-tokens
 DELETE /api/v1/access-tokens/:accessTokenId
 ```
 
-The complete token is shown only when it is created.
+Requires a GateWatch session. Revoked tokens can no longer authenticate.
 
 ---
 
@@ -589,16 +596,16 @@ reusable credentials; credential-like body paths and response-header names
 are rejected. Response-header operators are `EQUALS`,
 `CONTAINS`, and `EXISTS`; expected values are strings up to 8,192 characters.
 Status code supports integer `EQUALS` values from 100–599; response time
-supports integer `LESS_THAN_OR_EQUAL` values from 0–30,000 ms. This milestone
-stores definitions only; assertion execution remains deferred to M24.
+supports integer `LESS_THAN_OR_EQUAL` values from 0–30,000 ms. Executions
+reuse the saved definition and return safe assertion summaries; upstream
+response bodies and credentials are not persisted.
 
 Targets must be HTTP(S), contain no URL credentials or fragment, and match
 the associated API's upstream origin. Loopback, private, link-local, and
 metadata destinations and known local/container hostnames are rejected,
 except origins explicitly listed in `TEST_LOCAL_ALLOWED_ORIGINS` in
-non-production environments. DNS resolution and redirect destination checks
-are required at execution time and are part of M24; M23 does not make
-outbound requests.
+non-production environments. DNS resolution is validated at execution time,
+redirects are disabled, and response bodies are size-limited.
 
 Create returns `201`, reads and updates return `200`, and soft-delete returns
 `204`. Invalid definitions return structured `400` errors, missing or
@@ -626,6 +633,22 @@ CI/CD:
 POST /api/v1/tests/:testId/execute
 Authorization: Bearer <access-token>
 ```
+
+Use a GateWatch access token created through the endpoints above. The token
+authenticates as its owner and does not grant access to tests owned by other
+users. Session-authenticated executions are stored with `triggerType:
+"MANUAL"`; access-token executions are stored with `triggerType: "CI_CD"`.
+Both return `200` with the standard `data` wrapper containing `executionId`,
+`status` (`PASSED`, `FAILED`, or `ERROR`), `passed`, `durationMs`, and safe
+`result` assertion summaries. Missing, invalid, revoked, expired, or
+inactive-owner credentials return `401`; tests not owned by the token's user
+return `404`.
+
+Executions are not idempotent: a repeated request starts a new upstream test.
+If audit logging fails after the execution is persisted, GateWatch logs the
+audit failure and returns the completed execution result rather than inviting
+an automatic retry with a failure response. A client that loses the HTTP
+response cannot assume the execution did not occur.
 
 ### Test Executions
 

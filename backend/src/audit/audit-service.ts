@@ -1,4 +1,5 @@
 import type { Response } from 'express';
+import type { Knex } from 'knex';
 
 import database from '../config/database.js';
 
@@ -55,9 +56,12 @@ export function sanitizeAuditMetadata(
         : safeMetadata;
 }
 
-export async function writeAuditLog(input: AuditLogInput): Promise<void> {
+export async function writeAuditLog(
+    input: AuditLogInput,
+    transaction?: Knex.Transaction,
+): Promise<void> {
     try {
-        await database('audit_logs').insert({
+        await (transaction ?? database)('audit_logs').insert({
             user_id: input.actorUserId,
             actor_role: input.actorRole,
             action: input.action,

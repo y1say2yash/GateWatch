@@ -10,6 +10,7 @@ import {
     writeAuditLog,
 } from '../src/audit/audit-service.js';
 import { createProject } from '../src/projects/project-controller.js';
+import { nextTestGithubId } from './test-user-identity.js';
 
 let actorUserId: string;
 
@@ -17,7 +18,7 @@ before(async () => {
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const [user] = await database<{ id: string }>('users')
         .insert({
-            github_id: String(Date.now() * 10 + 13),
+            github_id: nextTestGithubId(),
             github_username: `audit-test-${suffix}`,
         })
         .returning('id');

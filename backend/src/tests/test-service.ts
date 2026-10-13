@@ -130,6 +130,7 @@ export async function deleteUserTest(
 export async function executeUserTest(
     userId: string,
     testId: string,
+    triggerType: 'MANUAL' | 'CI_CD' = 'MANUAL',
 ): Promise<{ id: string; executionId: string; status: 'PASSED' | 'FAILED' | 'ERROR'; passed: boolean; durationMs: number; result: TestExecutionResult; }> {
     const test = await findOwnedTest(userId, testId);
     if (!test) {
@@ -179,7 +180,7 @@ export async function executeUserTest(
         .insert({
             test_id: test.id,
             status: result.status,
-            trigger_type: 'MANUAL',
+            trigger_type: triggerType,
             response_status: result.responseStatus,
             response_time_ms: result.responseTimeMs,
             assertions: database.raw('?::jsonb', [JSON.stringify(result.assertions)]),

@@ -38,6 +38,7 @@ import {
 } from '../src/health/health-validation.js';
 
 import type { HealthCheckConfig } from '../src/health/health-types.js';
+import { nextTestGithubId } from './test-user-identity.js';
 
 const defaultConfig: HealthCheckConfig = {
     apiId: 'api-1',
@@ -89,7 +90,7 @@ before(async () => {
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const [owner] = await database<{ id: string }>('users')
         .insert({
-            github_id: String(Date.now() * 10 + 1),
+            github_id: nextTestGithubId(),
             github_username: `health-owner-${suffix}`,
         })
         .returning('id');
@@ -97,7 +98,7 @@ before(async () => {
 
     const [otherUser] = await database<{ id: string }>('users')
         .insert({
-            github_id: String(Date.now() * 10 + 2),
+            github_id: nextTestGithubId(),
             github_username: `health-other-${suffix}`,
         })
         .returning('id');

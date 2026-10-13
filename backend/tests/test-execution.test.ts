@@ -8,14 +8,15 @@ import { after, before, test } from 'node:test';
 
 import app from '../src/app.js';
 import database from '../src/config/database.js';
+import { nextTestGithubId } from './test-user-identity.js';
 
 let upstreamServer: Server | undefined;
 let appServer: Server | undefined;
 let upstreamOrigin: string;
 let origin: string;
 let ownerId: string | undefined;
+let otherUserId: string | undefined;
 const fixtureUserIds: string[] = [];
-let nextFixtureGithubId = BigInt(Date.now()) * 1000n;
 let apiId: string;
 let ownerCookie: string;
 let otherCookie: string;
@@ -35,7 +36,7 @@ async function createUser(): Promise<{ id: string; cookie: string }> {
     const suffix = crypto.randomUUID();
     const [user] = await database<{ id: string }>('users')
         .insert({
-            github_id: Number(nextFixtureGithubId++),
+            github_id: nextTestGithubId(),
             github_username: `exec-${suffix}`,
             is_admin: false,
         })
@@ -48,6 +49,46 @@ async function createUser(): Promise<{ id: string; cookie: string }> {
         expires_at: new Date(Date.now() + 60_000),
     });
     return { id: user.id, cookie: `gatewatch_session=${token}` };
+}
+
+async function createAccessToken(
+    userId: string,
+    options: { expiresAt?: Date; revokedAt?: Date } = {},
+): Promise<string> {
+    const token = `gw_at_${crypto.randomBytes(32).toString('base64url')}`;
+    await database('access_tokens').insert({
+        user_id: userId,
+        name: 'Execution test token',
+        token_hash: crypto.createHash('sha256').update(token).digest('hex'),
+        expires_at: options.expiresAt ?? null,
+        revoked_at: options.revokedAt ?? null,
+    });
+    return token;
+}
+
+async function installAuditFailureTrigger(): Promise<() => Promise<void>> {
+    const suffix = crypto.randomUUID().replaceAll('-', '');
+    const functionName = `test_audit_fail_${suffix}`;
+    const triggerName = `test_audit_fail_trigger_${suffix}`;
+    await database.raw(`
+        CREATE FUNCTION ${functionName}() RETURNS trigger AS $$
+        BEGIN
+            IF NEW.action IN ('TEST_EXECUTED', 'ACCESS_TOKEN_CREATED') THEN
+                RAISE EXCEPTION 'test audit failure';
+            END IF;
+            RETURN NEW;
+        END;
+        $$ LANGUAGE plpgsql;
+    `);
+    await database.raw(`
+        CREATE TRIGGER ${triggerName}
+        BEFORE INSERT ON audit_logs
+        FOR EACH ROW EXECUTE FUNCTION ${functionName}();
+    `);
+    return async () => {
+        await database.raw(`DROP TRIGGER IF EXISTS ${triggerName} ON audit_logs`);
+        await database.raw(`DROP FUNCTION IF EXISTS ${functionName}()`);
+    };
 }
 
 async function createApi(userId: string, upstreamUrl: string): Promise<string> {
@@ -153,6 +194,7 @@ before(async () => {
     ownerId = owner.id;
     ownerCookie = owner.cookie;
     const other = await createUser();
+    otherUserId = other.id;
     otherCookie = other.cookie;
     apiId = await createApi(ownerId, upstreamOrigin);
 
@@ -361,4 +403,293 @@ test('redacts sensitive fields from persisted assertion summaries', async () => 
     assert.equal(serialized.includes('must-not-be-stored'), false);
     assert.equal(serialized.includes('nested-secret'), false);
     assert.equal(serialized.includes('[REDACTED]'), true);
+});
+
+test('creates, lists, and revokes access tokens without exposing stored hashes', async () => {
+    const created = await request('/api/v1/users/me/access-tokens', ownerCookie, {
+        method: 'POST',
+        body: JSON.stringify({
+            name: 'GitHub Actions',
+            expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        }),
+    });
+    assert.equal(created.status, 201);
+    const createdData = (created.body as {
+        data: {
+            accessToken: { id: string; name: string; expiresAt: string };
+            token: string;
+        };
+    }).data;
+    assert.equal(createdData.accessToken.name, 'GitHub Actions');
+    assert.ok(createdData.accessToken.expiresAt);
+    assert.match(createdData.token, /^gw_at_[A-Za-z0-9_-]+$/);
+
+    const stored = await database('access_tokens')
+        .where({ id: createdData.accessToken.id })
+        .first('token_hash');
+    assert.notEqual(stored?.token_hash, createdData.token);
+    assert.equal(
+        stored?.token_hash,
+        crypto.createHash('sha256').update(createdData.token).digest('hex'),
+    );
+
+    const listed = await request('/api/v1/users/me/access-tokens', ownerCookie);
+    assert.equal(listed.status, 200);
+    assert.equal(JSON.stringify(listed.body).includes(createdData.token), false);
+    assert.equal(JSON.stringify(listed.body).includes('token_hash'), false);
+
+    const revoked = await request(
+        `/api/v1/access-tokens/${createdData.accessToken.id}`,
+        ownerCookie,
+        { method: 'DELETE' },
+    );
+    assert.equal(revoked.status, 204);
+    const rejected = await request(`/api/v1/tests/${testId}/execute`, undefined, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${createdData.token}` },
+    });
+    assert.equal(rejected.status, 401);
+});
+
+test('executes a saved test with an access token and records a safe CI/CD result', async () => {
+    await updateDefinition('/', [
+        { type: 'STATUS_CODE', operator: 'EQUALS', expected: 200 },
+        { type: 'JSON_BODY', path: '/status', operator: 'EQUALS', expected: 'ok' },
+    ]);
+    const token = await createAccessToken(ownerId as string);
+    const response = await request(`/api/v1/tests/${testId}/execute`, undefined, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ userId: otherUserId }),
+    });
+    assert.equal(response.status, 200);
+    const data = (response.body as {
+        data: {
+            executionId: string;
+            status: string;
+            passed: boolean;
+            result: { assertions: { pass: boolean }[] };
+        };
+    }).data;
+    assert.equal(data.status, 'PASSED');
+    assert.equal(data.passed, true);
+    assert.equal(data.result.assertions.length, 2);
+    assert.ok(data.result.assertions.every((assertion) => assertion.pass));
+
+    const persisted = await database('test_executions')
+        .where({ id: data.executionId })
+        .first('trigger_type', 'result');
+    assert.equal(persisted?.trigger_type, 'CI_CD');
+    assert.equal(JSON.stringify(persisted?.result).includes(token), false);
+});
+
+test('rejects missing, invalid, revoked, and expired access tokens', async () => {
+    const expiredToken = await createAccessToken(ownerId as string, {
+        expiresAt: new Date(Date.now() - 1_000),
+    });
+    const revokedToken = await createAccessToken(ownerId as string, {
+        revokedAt: new Date(),
+    });
+    const beforeCount = await database('test_executions')
+        .where({ test_id: testId })
+        .count('* as count')
+        .first();
+
+    const responses = await Promise.all([
+        request(`/api/v1/tests/${testId}/execute`, undefined, { method: 'POST' }),
+        request(`/api/v1/tests/${testId}/execute`, undefined, {
+            method: 'POST',
+            headers: { Authorization: 'Bearer gw_at_invalid' },
+        }),
+        request(`/api/v1/tests/${testId}/execute`, undefined, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${expiredToken}` },
+        }),
+        request(`/api/v1/tests/${testId}/execute`, undefined, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${revokedToken}` },
+        }),
+    ]);
+    assert.deepEqual(responses.map(({ status }) => status), [401, 401, 401, 401]);
+
+    const afterCount = await database('test_executions')
+        .where({ test_id: testId })
+        .count('* as count')
+        .first();
+    assert.equal(afterCount?.count, beforeCount?.count);
+});
+
+test('does not allow an access token to execute another user’s test', async () => {
+    const token = await createAccessToken(otherUserId as string);
+    const beforeCount = await database('test_executions')
+        .where({ test_id: testId })
+        .count('* as count')
+        .first();
+    const response = await request(`/api/v1/tests/${testId}/execute`, undefined, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+    });
+    const afterCount = await database('test_executions')
+        .where({ test_id: testId })
+        .count('* as count')
+        .first();
+    assert.equal(response.status, 404);
+    assert.equal(afterCount?.count, beforeCount?.count);
+});
+
+test('persists failed upstream executions initiated by an access token as CI/CD', async () => {
+    await updateDefinition('/disconnect', []);
+    const token = await createAccessToken(ownerId as string);
+    const response = await request(`/api/v1/tests/${testId}/execute`, undefined, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+    });
+    assert.equal(response.status, 200);
+    const data = (response.body as {
+        data: { executionId: string; status: string; passed: boolean };
+    }).data;
+    assert.equal(data.status, 'ERROR');
+    assert.equal(data.passed, false);
+    const persisted = await database('test_executions')
+        .where({ id: data.executionId })
+        .first('trigger_type', 'status', 'result');
+    assert.equal(persisted?.trigger_type, 'CI_CD');
+    assert.equal(persisted?.status, 'ERROR');
+    assert.equal(JSON.stringify(persisted?.result).includes(token), false);
+});
+
+test('rejects malformed bearer credentials and does not enable tokens on other management routes', async () => {
+    const token = await createAccessToken(ownerId as string);
+    const beforeCount = await database('test_executions')
+        .where({ test_id: testId })
+        .count('* as count')
+        .first();
+    const responses = await Promise.all([
+        request(`/api/v1/tests/${testId}/execute`, undefined, {
+            method: 'POST',
+            headers: { Authorization: 'Basic abc' },
+        }),
+        request(`/api/v1/tests/${testId}/execute`, undefined, {
+            method: 'POST',
+            headers: { Authorization: 'Bearer' },
+        }),
+        request(`/api/v1/tests/${testId}/execute`, undefined, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token} extra` },
+        }),
+        request(`/api/v1/tests/${testId}`, undefined, {
+            headers: { Authorization: `Bearer ${token}` },
+        }),
+    ]);
+    assert.deepEqual(responses.map(({ status }) => status), [401, 401, 401, 401]);
+    const afterCount = await database('test_executions')
+        .where({ test_id: testId })
+        .count('* as count')
+        .first();
+    assert.equal(afterCount?.count, beforeCount?.count);
+});
+
+test('rejects access tokens belonging to disabled owners without executing tests', async () => {
+    const token = await createAccessToken(ownerId as string);
+    const beforeCount = await database('test_executions')
+        .where({ test_id: testId })
+        .count('* as count')
+        .first();
+    await database('users').where({ id: ownerId }).update({ status: 'ADMIN_DISABLED' });
+    try {
+        const response = await request(`/api/v1/tests/${testId}/execute`, undefined, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}` },
+        });
+        assert.equal(response.status, 401);
+        const afterCount = await database('test_executions')
+            .where({ test_id: testId })
+            .count('* as count')
+            .first();
+        assert.equal(afterCount?.count, beforeCount?.count);
+    } finally {
+        await database('users').where({ id: ownerId }).update({ status: 'ACTIVE' });
+    }
+});
+
+test('rejects access tokens belonging to soft-deleted owners without executing tests', async () => {
+    const token = await createAccessToken(ownerId as string);
+    const beforeCount = await database('test_executions')
+        .where({ test_id: testId })
+        .count('* as count')
+        .first();
+    await database('users').where({ id: ownerId }).update({
+        status: 'DELETED',
+        deleted_at: database.fn.now(),
+    });
+    try {
+        const response = await request(`/api/v1/tests/${testId}/execute`, undefined, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}` },
+        });
+        assert.equal(response.status, 401);
+        const afterCount = await database('test_executions')
+            .where({ test_id: testId })
+            .count('* as count')
+            .first();
+        assert.equal(afterCount?.count, beforeCount?.count);
+    } finally {
+        await database('users').where({ id: ownerId }).update({
+            status: 'ACTIVE',
+            deleted_at: null,
+        });
+    }
+});
+
+test('returns the completed execution if its audit write fails and does not execute twice', async () => {
+    await updateDefinition('/', [
+        { type: 'STATUS_CODE', operator: 'EQUALS', expected: 200 },
+    ]);
+    const cleanupAuditTrigger = await installAuditFailureTrigger();
+    const beforeCount = await database('test_executions')
+        .where({ test_id: testId })
+        .count('* as count')
+        .first();
+    try {
+        const response = await request(`/api/v1/tests/${testId}/execute`, ownerCookie, {
+            method: 'POST',
+        });
+        assert.equal(response.status, 200);
+        const data = (response.body as {
+            data: { executionId: string; status: string; passed: boolean };
+        }).data;
+        assert.equal(data.status, 'PASSED');
+        assert.equal(data.passed, true);
+        assert.ok(data.executionId);
+        const afterCount = await database('test_executions')
+            .where({ test_id: testId })
+            .count('* as count')
+            .first();
+        assert.equal(Number(afterCount?.count) - Number(beforeCount?.count), 1);
+    } finally {
+        await cleanupAuditTrigger();
+    }
+});
+
+test('rolls back access-token creation when its audit write fails', async () => {
+    const cleanupAuditTrigger = await installAuditFailureTrigger();
+    const beforeCount = await database('access_tokens')
+        .where({ user_id: ownerId })
+        .count('* as count')
+        .first();
+    try {
+        const response = await request('/api/v1/users/me/access-tokens', ownerCookie, {
+            method: 'POST',
+            body: JSON.stringify({ name: 'Undisclosed test token' }),
+        });
+        assert.equal(response.status, 503);
+        assert.equal(JSON.stringify(response.body).includes('gw_at_'), false);
+        const afterCount = await database('access_tokens')
+            .where({ user_id: ownerId })
+            .count('* as count')
+            .first();
+        assert.equal(afterCount?.count, beforeCount?.count);
+    } finally {
+        await cleanupAuditTrigger();
+    }
 });

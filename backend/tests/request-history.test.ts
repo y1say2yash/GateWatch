@@ -21,6 +21,7 @@ import {
     getUserApiMonitoringSummary,
     MonitoringApiNotFoundError,
 } from '../src/monitoring/monitoring-service.js';
+import { nextTestGithubId } from './test-user-identity.js';
 
 let ownerId: string;
 let otherUserId: string;
@@ -95,7 +96,7 @@ before(async () => {
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const [owner] = await database<{ id: string }>('users')
         .insert({
-            github_id: String(Date.now() * 10 + 11),
+            github_id: nextTestGithubId(),
             github_username: `history-owner-${suffix}`,
         })
         .returning('id');
@@ -103,7 +104,7 @@ before(async () => {
 
     const [otherUser] = await database<{ id: string }>('users')
         .insert({
-            github_id: String(Date.now() * 10 + 12),
+            github_id: nextTestGithubId(),
             github_username: `history-other-${suffix}`,
         })
         .returning('id');

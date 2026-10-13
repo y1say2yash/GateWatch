@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 
 import {
+    AuditLogWriteError,
     getAuditActorRole,
     sendAuditLogFailure,
     writeAuditLog,
@@ -191,8 +192,22 @@ export async function executeTestController(
     request: Request<{ testId: string }>,
     response: Response,
 ): Promise<void> {
+    const triggerType = response.locals.authenticationMethod === 'ACCESS_TOKEN'
+        ? 'CI_CD'
+        : 'MANUAL';
+    let execution: Awaited<ReturnType<typeof executeUserTest>>;
     try {
-        const execution = await executeUserTest(response.locals.user.id, request.params.testId);
+        execution = await executeUserTest(
+            response.locals.user.id,
+            request.params.testId,
+            triggerType,
+        );
+    } catch (error) {
+        handleTestError(error, response);
+        return;
+    }
+
+    try {
         await writeAuditLog({
             actorUserId: response.locals.user.id,
             actorRole: getAuditActorRole(response.locals.user.isAdmin),
@@ -206,8 +221,13 @@ export async function executeTestController(
             },
             ipAddress: request.socket.remoteAddress,
         });
-        response.status(200).json({ data: execution });
     } catch (error) {
-        handleTestError(error, response);
+        if (error instanceof AuditLogWriteError) {
+            console.error('Test execution completed, but its audit log could not be persisted.');
+        } else {
+            console.error('Test execution completed, but audit logging failed.');
+        }
     }
+
+    response.status(200).json({ data: execution });
 }
