@@ -401,11 +401,18 @@ Deletion is implemented as soft deletion.
 POST /api/v1/users/me/access-tokens
 ```
 
+Requires a GateWatch session. The JSON body accepts a required `name` (1–100
+characters) and optional `expiresAt` (a future ISO 8601 timestamp; omit or set
+to `null` for no expiration). The complete bearer token is returned only in the
+creation response; subsequent list responses expose metadata only.
+
 ### List Access Tokens
 
 ```
 GET /api/v1/users/me/access-tokens
 ```
+
+Requires a GateWatch session and lists only the current user's access tokens.
 
 ### Revoke Access Token
 
@@ -413,7 +420,7 @@ GET /api/v1/users/me/access-tokens
 DELETE /api/v1/access-tokens/:accessTokenId
 ```
 
-The complete token is shown only when it is created.
+Requires a GateWatch session. Revoked tokens can no longer authenticate.
 
 ---
 
@@ -540,6 +547,71 @@ PATCH  /api/v1/tests/:testId
 DELETE /api/v1/tests/:testId
 ```
 
+These endpoints require a GateWatch session and enforce ownership through
+test → API → project → user. Admin role does not grant ownership. Tests use
+soft deletion.
+
+M23 provides these backend endpoints only; the user-facing interface is
+deferred until the frontend foundation is established.
+
+Create and PATCH bodies accept `name`, `method`, absolute `url`, `headers`
+(string-valued JSON object), `body` (JSON), `authentication`, `assertions`,
+and `timeoutMs`. Supported methods: GET, POST, PUT, PATCH, DELETE, HEAD, and
+OPTIONS. Timeout defaults to 5,000 ms and must be 1–30,000 ms. Headers are
+limited to 50 entries with values up to 8,192 characters; request bodies are
+limited to 64 KB and cannot contain credential-like fields. Configure
+credentials using the dedicated authentication field.
+
+Authentication formats:
+
+```json
+{"type":"NONE"}
+{"type":"BASIC","username":"…","password":"…"}
+{"type":"BEARER","token":"…"}
+{"type":"API_KEY","name":"X-API-Key","value":"…"}
+```
+
+Credentials are encrypted at rest. Read responses include only `type`, safe
+username/header metadata, and `credentialConfigured`; they never include
+credential values. When updating a configured credential, omit its value to
+retain it, or provide a replacement.
+
+Assertions are a JSON array of at most 50 objects:
+
+```json
+[
+  {"type":"STATUS_CODE","operator":"EQUALS","expected":200},
+  {"type":"JSON_BODY","path":"/status","operator":"EQUALS","expected":"ok"},
+  {"type":"RESPONSE_HEADER","name":"content-type","operator":"CONTAINS","expected":"application/json"},
+  {"type":"RESPONSE_TIME","operator":"LESS_THAN_OR_EQUAL","expected":1000}
+]
+```
+
+JSON-body `path` uses JSON Pointer syntax (the empty string means the root).
+Body operators are `EQUALS`, `NOT_EQUALS`, `CONTAINS`, and `EXISTS`.
+`EQUALS` and `NOT_EQUALS` accept JSON values; `CONTAINS` accepts a string
+(substring for string results, exact member for array results); `EXISTS`
+does not accept an expected value. Expected values and paths must not contain
+reusable credentials; credential-like body paths and response-header names
+are rejected. Response-header operators are `EQUALS`,
+`CONTAINS`, and `EXISTS`; expected values are strings up to 8,192 characters.
+Status code supports integer `EQUALS` values from 100–599; response time
+supports integer `LESS_THAN_OR_EQUAL` values from 0–30,000 ms. Executions
+reuse the saved definition and return safe assertion summaries; upstream
+response bodies and credentials are not persisted.
+
+Targets must be HTTP(S), contain no URL credentials or fragment, and match
+the associated API's upstream origin. Loopback, private, link-local, and
+metadata destinations and known local/container hostnames are rejected,
+except origins explicitly listed in `TEST_LOCAL_ALLOWED_ORIGINS` in
+non-production environments. DNS resolution is validated at execution time,
+redirects are disabled, and response bodies are size-limited.
+
+Create returns `201`, reads and updates return `200`, and soft-delete returns
+`204`. Invalid definitions return structured `400` errors, missing or
+unowned resources return `404`, missing sessions return `401`, and missing
+credential-encryption configuration returns `503`.
+
 ### Execute Test
 
 ```
@@ -561,6 +633,22 @@ CI/CD:
 POST /api/v1/tests/:testId/execute
 Authorization: Bearer <access-token>
 ```
+
+Use a GateWatch access token created through the endpoints above. The token
+authenticates as its owner and does not grant access to tests owned by other
+users. Session-authenticated executions are stored with `triggerType:
+"MANUAL"`; access-token executions are stored with `triggerType: "CI_CD"`.
+Both return `200` with the standard `data` wrapper containing `executionId`,
+`status` (`PASSED`, `FAILED`, or `ERROR`), `passed`, `durationMs`, and safe
+`result` assertion summaries. Missing, invalid, revoked, expired, or
+inactive-owner credentials return `401`; tests not owned by the token's user
+return `404`.
+
+Executions are not idempotent: a repeated request starts a new upstream test.
+If audit logging fails after the execution is persisted, GateWatch logs the
+audit failure and returns the completed execution result rather than inviting
+an automatic retry with a failure response. A client that loses the HTTP
+response cannot assume the execution did not occur.
 
 ### Test Executions
 
