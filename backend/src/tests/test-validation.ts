@@ -4,6 +4,10 @@ import type {
     TestInput,
     TestMethod,
 } from './test-types.js';
+import {
+    isDevelopmentLocalOriginAllowed,
+    isLocalHostname,
+} from './test-network-policy.js';
 
 const METHODS = new Set<TestMethod>([
     'GET',
@@ -96,58 +100,6 @@ function validateMethod(value: unknown): TestMethod {
     return value as TestMethod;
 }
 
-function isPrivateIpv4(hostname: string): boolean {
-    const parts = hostname.split('.');
-    if (parts.length !== 4 || parts.some((part) => !/^\d{1,3}$/.test(part))) {
-        return false;
-    }
-    const octets = parts.map(Number);
-    if (octets.some((octet) => octet > 255)) {
-        return false;
-    }
-    const [first, second] = octets;
-    return first === 0 || first === 10 || first === 127 ||
-        (first === 169 && second === 254) ||
-        (first === 172 && second >= 16 && second <= 31) ||
-        (first === 192 && second === 168) ||
-        (first === 192 && second === 0) ||
-        (first === 198 && (second === 18 || second === 19 || second === 51)) ||
-        (first === 203 && second === 0 && octets[2] === 113) ||
-        (first === 100 && second >= 64 && second <= 127) ||
-        first >= 224;
-}
-
-function isPrivateOrLocalHostname(hostname: string): boolean {
-    const host = hostname.toLowerCase().replace(/^\[|\]$/g, '');
-    return host === 'localhost' ||
-        host.endsWith('.localhost') ||
-        host.endsWith('.local') ||
-        host.endsWith('.internal') ||
-        host.endsWith('.intranet') ||
-        host.endsWith('.corp') ||
-        host.endsWith('.home.arpa') ||
-        host === 'host.docker.internal' ||
-        host === 'gateway.docker.internal' ||
-        host === 'host.containers.internal' ||
-        !host.includes('.') ||
-        host === 'metadata.google.internal' ||
-        host === 'metadata' ||
-        host === '::' ||
-        host === '::1' ||
-        host.startsWith('::') ||
-        host.startsWith('fc') ||
-        host.startsWith('fd') ||
-        host.startsWith('fe8') ||
-        host.startsWith('fe9') ||
-        host.startsWith('fea') ||
-        host.startsWith('feb') ||
-        host.startsWith('fec') ||
-        host.startsWith('fed') ||
-        host.startsWith('fee') ||
-        host.startsWith('fef') ||
-        isPrivateIpv4(host);
-}
-
 function validateUrl(value: unknown, upstreamUrl: string): string {
     if (typeof value !== 'string' || value.length > 2048) {
         throw new TestValidationError(
@@ -188,15 +140,9 @@ function validateUrl(value: unknown, upstreamUrl: string): string {
         );
     }
 
-    const localOrigins = new Set(
-        (process.env.TEST_LOCAL_ALLOWED_ORIGINS ?? '')
-            .split(',')
-            .map((origin) => origin.trim())
-            .filter(Boolean),
-    );
     if (
-        isPrivateOrLocalHostname(target.hostname) &&
-        !(process.env.NODE_ENV !== 'production' && localOrigins.has(target.origin))
+        isLocalHostname(target.hostname) &&
+        !isDevelopmentLocalOriginAllowed(target)
     ) {
         throw new TestTargetUrlError(
             'Test URL cannot target a loopback, private, link-local, or metadata host.',

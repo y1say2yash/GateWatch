@@ -1,4 +1,8 @@
-import { createCipheriv, randomBytes } from 'node:crypto';
+import {
+    createCipheriv,
+    createDecipheriv,
+    randomBytes,
+} from 'node:crypto';
 
 import type {
     TestAuthentication,
@@ -96,6 +100,58 @@ function encryptSecret(value: string): EncryptedSecret {
         tag: cipher.getAuthTag().toString('hex'),
         ciphertext: ciphertext.toString('hex'),
     };
+}
+
+function decryptSecret(secret: EncryptedSecret): string {
+    const iv = Buffer.from(secret.iv, 'hex');
+    const tag = Buffer.from(secret.tag, 'hex');
+    const ciphertext = Buffer.from(secret.ciphertext, 'hex');
+    const decipher = createDecipheriv('aes-256-gcm', getEncryptionKey(), iv);
+    decipher.setAuthTag(tag);
+    const output = Buffer.concat([
+        decipher.update(ciphertext),
+        decipher.final(),
+    ]);
+    return output.toString('utf8');
+}
+
+export function decryptAuthentication(
+    value: unknown,
+): Record<string, unknown> | null {
+    const stored = parseStoredAuthentication(value);
+    if (!stored) {
+        return null;
+    }
+
+    if (stored.type === 'NONE') {
+        return { type: 'NONE' };
+    }
+
+    if (!stored.secret) {
+        return null;
+    }
+
+    if (stored.type === 'BASIC') {
+        return {
+            type: 'BASIC',
+            username: stored.username ?? '',
+            password: decryptSecret(stored.secret),
+        };
+    }
+    if (stored.type === 'BEARER') {
+        return {
+            type: 'BEARER',
+            token: decryptSecret(stored.secret),
+        };
+    }
+    if (stored.type === 'API_KEY') {
+        return {
+            type: 'API_KEY',
+            name: stored.name ?? '',
+            value: decryptSecret(stored.secret),
+        };
+    }
+    return { type: 'NONE' };
 }
 
 export function protectAuthentication(

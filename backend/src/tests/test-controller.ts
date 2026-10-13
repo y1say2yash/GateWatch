@@ -8,12 +8,14 @@ import {
 import {
     createUserTest,
     deleteUserTest,
+    executeUserTest,
     getUserTest,
     listUserTests,
     TestApiNotFoundError,
     TestNotFoundError,
     updateUserTest,
 } from './test-service.js';
+import { TestApiDisabledError, TestExecutionError } from './test-execution.js';
 import {
     TestTargetUrlError,
     TestValidationError,
@@ -37,6 +39,24 @@ function handleTestError(error: unknown, response: Response): void {
         response.status(404).json({
             error: {
                 code: error instanceof TestApiNotFoundError ? 'API_NOT_FOUND' : 'TEST_NOT_FOUND',
+                message: error.message,
+            },
+        });
+        return;
+    }
+    if (error instanceof TestApiDisabledError) {
+        response.status(503).json({
+            error: {
+                code: 'API_UNAVAILABLE',
+                message: error.message,
+            },
+        });
+        return;
+    }
+    if (error instanceof TestExecutionError) {
+        response.status(400).json({
+            error: {
+                code: 'TEST_EXECUTION_FAILED',
                 message: error.message,
             },
         });
@@ -162,6 +182,31 @@ export async function deleteTestController(
             ipAddress: request.socket.remoteAddress,
         });
         response.status(204).send();
+    } catch (error) {
+        handleTestError(error, response);
+    }
+}
+
+export async function executeTestController(
+    request: Request<{ testId: string }>,
+    response: Response,
+): Promise<void> {
+    try {
+        const execution = await executeUserTest(response.locals.user.id, request.params.testId);
+        await writeAuditLog({
+            actorUserId: response.locals.user.id,
+            actorRole: getAuditActorRole(response.locals.user.isAdmin),
+            action: 'TEST_EXECUTED',
+            resourceType: 'TEST',
+            resourceId: request.params.testId,
+            metadata: {
+                executionId: execution.id,
+                status: execution.status,
+                passed: execution.passed,
+            },
+            ipAddress: request.socket.remoteAddress,
+        });
+        response.status(200).json({ data: execution });
     } catch (error) {
         handleTestError(error, response);
     }

@@ -5,6 +5,7 @@ import { requireAuthentication } from '../auth/session-middleware.js';
 import {
     createTestController,
     deleteTestController,
+    executeTestController,
     getTestController,
     listTestsController,
     updateTestController,
@@ -40,5 +41,6 @@ router.post('/apis/:apiId/tests', validateResourceId, createTestController);
 router.get('/tests/:testId', validateResourceId, getTestController);
 router.patch('/tests/:testId', validateResourceId, updateTestController);
 router.delete('/tests/:testId', validateResourceId, deleteTestController);
+router.post('/tests/:testId/execute', validateResourceId, executeTestController);
 
 export default router;

@@ -130,6 +130,35 @@ test('does not accept private or local test targets without a development allowl
     }
 });
 
+test('allows only the exact local origin in an explicit non-production allowlist', () => {
+    const priorMode = process.env.NODE_ENV;
+    const priorOrigins = process.env.TEST_LOCAL_ALLOWED_ORIGINS;
+    const allowedOrigin = 'http://127.0.0.1:3000';
+    process.env.NODE_ENV = 'test';
+    process.env.TEST_LOCAL_ALLOWED_ORIGINS = allowedOrigin;
+    try {
+        assert.doesNotThrow(() => validateTestInput({
+            ...validDefinition,
+            url: `${allowedOrigin}/health`,
+        }, allowedOrigin));
+        assert.throws(() => validateTestInput({
+            ...validDefinition,
+            url: 'http://127.0.0.1:3001/health',
+        }, 'http://127.0.0.1:3001'), TestTargetUrlError);
+
+        process.env.NODE_ENV = 'production';
+        assert.throws(() => validateTestInput({
+            ...validDefinition,
+            url: `${allowedOrigin}/health`,
+        }, allowedOrigin), TestTargetUrlError);
+    } finally {
+        if (priorMode === undefined) delete process.env.NODE_ENV;
+        else process.env.NODE_ENV = priorMode;
+        if (priorOrigins === undefined) delete process.env.TEST_LOCAL_ALLOWED_ORIGINS;
+        else process.env.TEST_LOCAL_ALLOWED_ORIGINS = priorOrigins;
+    }
+});
+
 test('encrypts configured credentials and exposes only safe authentication metadata', () => {
     const prior = process.env.TEST_CREDENTIAL_ENCRYPTION_KEY;
     process.env.TEST_CREDENTIAL_ENCRYPTION_KEY = 'a'.repeat(64);

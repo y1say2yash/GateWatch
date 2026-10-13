@@ -58,6 +58,27 @@ export interface ApiTest {
     updatedAt: string;
 }
 
+export interface TestAssertionResult {
+    type: TestAssertion['type'];
+    pass: boolean;
+    expected?: unknown;
+    actual?: unknown;
+    message: string;
+    operator?: string;
+    name?: string;
+    path?: string;
+}
+
+export interface TestExecutionResult {
+    passed: boolean;
+    status: 'PASSED' | 'FAILED' | 'ERROR';
+    durationMs: number;
+    responseStatus?: number | null;
+    responseTimeMs?: number | null;
+    assertions: TestAssertionResult[];
+    errorMessage?: string | null;
+}
+
 export interface TestInput {
     name: string;
     method: TestMethod;
