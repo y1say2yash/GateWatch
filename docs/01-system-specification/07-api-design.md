@@ -700,16 +700,69 @@ GET    /api/v1/apis/:apiId/alerts
 POST   /api/v1/apis/:apiId/alerts
 GET    /api/v1/alerts/:alertId
 PATCH  /api/v1/alerts/:alertId
+POST   /api/v1/alerts/:alertId/enable
+POST   /api/v1/alerts/:alertId/disable
 DELETE /api/v1/alerts/:alertId
+GET    /api/v1/alerts/:alertId/evaluate
+POST   /api/v1/alerts/:alertId/evaluate
+GET    /api/v1/alerts/:alertId/events
 ```
 
-`DELETE` soft-deletes the alert configuration.
+All alert management endpoints require an authenticated user who owns the API
+through its project. Foreign and deleted resources are returned as not found.
+`DELETE` soft-deletes the alert configuration. List responses use the standard
+`data` wrapper and return active (not soft-deleted) configurations.
+
+Create requests require `name`, `type`, and `configuration`. Updates accept
+any non-empty subset of `name`, `type`, and `configuration`; if `type` or
+`configuration` changes, the complete resulting configuration is validated.
+The supported configurations are:
+
+| Type | Configuration |
+| --- | --- |
+| `API_DOWN` | `{}`; no additional fields |
+| `UNHEALTHY_DURATION` | `durationSeconds`: integer from 1 to 604800 |
+| `ERROR_RATE` | `threshold`: number greater than 0 and at most 1; `windowSeconds`: integer from 60 to 86400 |
+| `LATENCY` | `thresholdMs`: integer from 1 to 60000; `windowSeconds`: integer from 60 to 86400 |
+
+`ERROR_RATE.threshold` uses the same 0–1 ratio as the monitoring summary
+(for example, `0.05` represents 5%). Latency is measured in milliseconds,
+and durations/windows are measured in seconds. These are M26 configuration
+units and bounds.
+
+Alert `status` describes configuration lifecycle and remains separate from
+`runtimeState`, which is either `INACTIVE` or `TRIGGERED`. Newly created
+alerts start `INACTIVE`. Evaluation changes runtime state only when an
+enabled alert's condition changes: becoming active emits one `TRIGGERED`
+event and sets `triggeredAt`; becoming inactive after a trigger emits one
+`RECOVERED` event and sets `recoveredAt`. Repeated evaluations in the same
+condition do not add events. Evaluation of a disabled alert does not change
+runtime state or event history. If disabled while triggered, the alert stays
+triggered until it is re-enabled and an evaluation reconciles its condition.
+State updates and event inserts are atomic and concurrent evaluations are
+serialized for that alert.
+
+`GET /api/v1/alerts/:alertId/evaluate` remains a read-only condition preview
+and returns the existing `{ data: evaluation }` response. `POST` on the same
+path evaluates and persists any transition. Its `data` contains the
+evaluation fields plus `runtimeState` and `transitioned`.
 
 ### Alert Events
 
 ```
-GET /api/v1/alerts/:alertId/events
+GET /api/v1/alerts/:alertId/events?page=1&limit=20
 ```
+
+This authenticated endpoint is restricted to the alert owner; foreign,
+deleted, or missing alerts return `404`. Events are ordered newest first by
+`occurredAt`, then event ID descending. `page` defaults to `1`; `limit`
+defaults to `20` and is bounded from `1` to `100`. Unsupported, repeated, or
+invalid query parameters return a structured `400` error. The response
+contains safe event fields (`id`, `alertId`, `eventType`, `message`,
+`metadata`, and `occurredAt`) in `data`, plus `pagination` with `page`,
+`limit`, `total`, and `totalPages`. Empty history returns `200` with an empty
+`data` array. `occurredAt` is the transition time; `triggeredAt` is populated
+for trigger events and `resolvedAt` for recovery events in storage.
 
 ---
 

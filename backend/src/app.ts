@@ -13,6 +13,7 @@ import gatewayRoutes from './gateway/gateway-routes.js';
 import apiKeyRoutes from './api-keys/api-key-routes.js';
 import adminRoutes from './admin/admin-routes.js';
 import testRoutes from './tests/test-routes.js';
+import alertRoutes from './alerts/alert-routes.js';
 
 const app = express();
 
@@ -30,6 +31,7 @@ app.use('/api/v1/users', userRoutes);
 app.use('/api/v1/projects', projectRoutes);
 app.use('/api/v1', testRoutes);
 app.use('/api/v1', apiRoutes);
+app.use('/api/v1', alertRoutes);
 app.use('/api/v1', routeRoutes);
 app.use('/api/v1', apiKeyRoutes);
 app.use('/api/v1/admin', adminRoutes);
