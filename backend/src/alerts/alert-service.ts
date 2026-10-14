@@ -6,6 +6,7 @@ import {
     softDeleteOwnedAlert,
     updateOwnedAlert,
 } from './alert-repository.js';
+import { evaluateUserAlert as evaluateStoredAlert } from './alert-evaluator.js';
 import type { AlertType } from './alert-types.js';
 import {
     validateAlertConfiguration,
@@ -115,5 +116,21 @@ export async function deleteUserAlert(
     const deleted = await softDeleteOwnedAlert(userId, alertId);
     if (!deleted) {
         throw new AlertNotFoundError();
+    }
+}
+
+export async function evaluateUserAlert(
+    userId: string,
+    alertId: string,
+    now: Date = new Date(),
+): Promise<Awaited<ReturnType<typeof evaluateStoredAlert>>> {
+    requireUuid(alertId);
+    try {
+        return await evaluateStoredAlert(userId, alertId, now);
+    } catch (error) {
+        if (error instanceof Error && error.message === 'Alert not found.') {
+            throw new AlertNotFoundError();
+        }
+        throw error;
     }
 }

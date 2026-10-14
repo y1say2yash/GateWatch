@@ -6,6 +6,7 @@ import {
     deleteAlertController,
     disableAlertController,
     enableAlertController,
+    evaluateAlertController,
     getAlertController,
     listApiAlertsController,
     updateAlertController,
@@ -18,6 +19,7 @@ router.use(requireAuthentication);
 router.get('/apis/:apiId/alerts', listApiAlertsController);
 router.post('/apis/:apiId/alerts', createAlertController);
 router.get('/alerts/:alertId', getAlertController);
+router.get('/alerts/:alertId/evaluate', evaluateAlertController);
 router.patch('/alerts/:alertId', updateAlertController);
 router.post('/alerts/:alertId/enable', enableAlertController);
 router.post('/alerts/:alertId/disable', disableAlertController);

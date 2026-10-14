@@ -9,6 +9,7 @@ import {
     AlertNotFoundError,
     createUserAlert,
     deleteUserAlert,
+    evaluateUserAlert,
     getUserAlert,
     listUserApiAlerts,
     setUserAlertEnabled,
@@ -193,6 +194,21 @@ export async function deleteAlertController(
             ipAddress: request.socket.remoteAddress,
         });
         response.status(204).send();
+    } catch (error) {
+        handleAlertError(error, response);
+    }
+}
+
+export async function evaluateAlertController(
+    request: Request<{ alertId: string }>,
+    response: Response,
+): Promise<void> {
+    try {
+        const evaluation = await evaluateUserAlert(
+            response.locals.user.id,
+            request.params.alertId,
+        );
+        response.status(200).json({ data: evaluation });
     } catch (error) {
         handleAlertError(error, response);
     }
