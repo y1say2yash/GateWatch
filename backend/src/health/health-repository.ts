@@ -1,4 +1,5 @@
 import database from '../config/database.js';
+import type { Knex } from 'knex';
 
 import type {
     HealthCheckRecord,
@@ -80,8 +81,9 @@ export async function persistHealthCheck(
 export async function findOwnedHealthStatus(
     userId: string,
     apiId: string,
+    connection: Knex | Knex.Transaction = database,
 ): Promise<HealthStatusResult | null> {
-    const api = await database<ApiHealthRow>('apis')
+    const api = await connection<ApiHealthRow>('apis')
         .join('projects', 'projects.id', 'apis.project_id')
         .where({
             'apis.id': apiId,
@@ -101,7 +103,7 @@ export async function findOwnedHealthStatus(
         return null;
     }
 
-    const latest = await database<HealthCheckRow>('health_checks')
+    const latest = await connection<HealthCheckRow>('health_checks')
         .where({ api_id: apiId })
         .orderBy('checked_at', 'desc')
         .orderBy('id', 'desc')
@@ -119,8 +121,9 @@ export async function findOwnedHealthHistory(
     userId: string,
     apiId: string,
     limit: number,
+    connection: Knex | Knex.Transaction = database,
 ): Promise<HealthCheckRecord[] | null> {
-    const api = await database('apis')
+    const api = await connection('apis')
         .join('projects', 'projects.id', 'apis.project_id')
         .where({
             'apis.id': apiId,
@@ -136,7 +139,7 @@ export async function findOwnedHealthHistory(
         return null;
     }
 
-    const rows = await database<HealthCheckRow>('health_checks')
+    const rows = await connection<HealthCheckRow>('health_checks')
         .where({ api_id: apiId })
         .orderBy('checked_at', 'desc')
         .orderBy('id', 'desc')

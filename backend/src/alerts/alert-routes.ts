@@ -9,6 +9,8 @@ import {
     evaluateAlertController,
     getAlertController,
     listApiAlertsController,
+    listAlertEventsController,
+    transitionAlertController,
     updateAlertController,
 } from './alert-controller.js';
 
@@ -20,6 +22,8 @@ router.get('/apis/:apiId/alerts', listApiAlertsController);
 router.post('/apis/:apiId/alerts', createAlertController);
 router.get('/alerts/:alertId', getAlertController);
 router.get('/alerts/:alertId/evaluate', evaluateAlertController);
+router.post('/alerts/:alertId/evaluate', transitionAlertController);
+router.get('/alerts/:alertId/events', listAlertEventsController);
 router.patch('/alerts/:alertId', updateAlertController);
 router.post('/alerts/:alertId/enable', enableAlertController);
 router.post('/alerts/:alertId/disable', disableAlertController);

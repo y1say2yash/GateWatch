@@ -1,4 +1,5 @@
 import database from '../config/database.js';
+import type { Knex } from 'knex';
 
 import type {
     MonitoringDateRange,
@@ -9,8 +10,9 @@ export async function findOwnedApiMonitoringRows(
     userId: string,
     apiId: string,
     range: MonitoringDateRange,
+    connection: Knex | Knex.Transaction = database,
 ): Promise<MonitoringStatusRow[] | null> {
-    const ownedApi = await database('apis')
+    const ownedApi = await connection('apis')
         .join('projects', 'projects.id', 'apis.project_id')
         .where({
             'apis.id': apiId,
@@ -26,7 +28,7 @@ export async function findOwnedApiMonitoringRows(
         return null;
     }
 
-    const query = database<MonitoringStatusRow>('request_history')
+    const query = connection<MonitoringStatusRow>('request_history')
         .where('api_id', apiId);
     if (range.from) {
         query.where('created_at', '>=', range.from);

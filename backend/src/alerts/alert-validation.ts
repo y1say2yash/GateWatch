@@ -12,6 +12,64 @@ export class AlertValidationError extends Error {
     }
 }
 
+export class AlertQueryValidationError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'AlertQueryValidationError';
+    }
+}
+
+export interface AlertEventPagination {
+    page: number;
+    limit: number;
+}
+
+export function validateAlertEventPagination(
+    query: Record<string, unknown>,
+): AlertEventPagination {
+    for (const key of Object.keys(query)) {
+        if (key !== 'page' && key !== 'limit') {
+            throw new AlertQueryValidationError(
+                `Unsupported alert event query parameter: ${key}.`,
+            );
+        }
+    }
+
+    const parseInteger = (
+        value: unknown,
+        key: string,
+        fallback: number,
+        maximum: number,
+    ): number => {
+        if (value === undefined) {
+            return fallback;
+        }
+        if (
+            typeof value !== 'string' ||
+            !/^[1-9]\d*$/.test(value) ||
+            !Number.isSafeInteger(Number(value)) ||
+            Number(value) > maximum
+        ) {
+            throw new AlertQueryValidationError(
+                `${key} must be an integer between 1 and ${maximum}.`,
+            );
+        }
+        return Number(value);
+    };
+
+    const page = parseInteger(
+        query.page,
+        'page',
+        1,
+        Number.MAX_SAFE_INTEGER,
+    );
+    const limit = parseInteger(query.limit, 'limit', 20, 100);
+    if (!Number.isSafeInteger((page - 1) * limit)) {
+        throw new AlertQueryValidationError('page is too large.');
+    }
+    return { page, limit };
+}
+
 const ALERT_TYPES: readonly AlertType[] = [
     'API_DOWN',
     'UNHEALTHY_DURATION',

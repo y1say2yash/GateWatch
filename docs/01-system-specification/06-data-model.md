@@ -204,7 +204,8 @@ erDiagram
         uuid api_id FK
         enum type
         jsonb configuration
-        enum state
+        enum status
+        enum runtime_state
         boolean enabled
         timestamp triggered_at
         timestamp recovered_at
@@ -214,10 +215,13 @@ erDiagram
     }
 
     ALERT_EVENTS {
-        uuid alert_event_id PK
+        uuid id PK
         uuid alert_id FK
-        enum event_type
-        timestamp created_at
+        string event_type
+        timestamp occurred_at
+        timestamp triggered_at
+        timestamp resolved_at
+        text message
         jsonb metadata
     }
 
@@ -641,29 +645,46 @@ independent from its health status.
 | `status` | ALERT_STATUS | NOT NULL |
 | `configuration` | JSONB | NOT NULL; added by migration 11 |
 | `enabled` | BOOLEAN | NOT NULL, defaults to `true` |
+| `runtime_state` | ALERT_RUNTIME_STATE | NOT NULL, defaults to `INACTIVE`; added by migration 12 |
 | `threshold` | INTEGER | NULL; retained for legacy rows |
 | `duration_seconds` | INTEGER | NULL; retained for legacy rows |
+| `triggered_at` | TIMESTAMPTZ | NULL; latest trigger time |
+| `recovered_at` | TIMESTAMPTZ | NULL; latest recovery time |
 | `created_at` | TIMESTAMPTZ | NOT NULL |
 | `updated_at` | TIMESTAMPTZ | NOT NULL |
 | `deleted_at` | TIMESTAMPTZ | NULL |
 
 The original gateway-monitoring migration uses `id`, `name`, `status`,
 `threshold`, and `duration_seconds` rather than the earlier proposed
-`alert_id`/`state` layout. Alert configuration CRUD preserves those existing
-columns and adds JSONB `configuration`; it does not implement alert state
-transitions or event history. The legacy `DOWN` enum value remains available
-for existing records; M26 adds `API_DOWN` and maps legacy `DOWN` records to it
-in API responses. New API requests accept only `API_DOWN`.
+`alert_id` layout. `status` is the configuration lifecycle (`ACTIVE`,
+`RESOLVED`, `DISABLED`, or `DELETED`); it is distinct from `runtime_state`,
+which records `INACTIVE` or `TRIGGERED`. Migration 12 adds the runtime state
+and transition timestamps without repurposing lifecycle status. New alerts
+start `INACTIVE`. An enabled alert transitions to `TRIGGERED` or back to
+`INACTIVE` only when its evaluated condition changes; each transition creates
+one event. Disabling an alert does not change its runtime state, and state
+evaluation while disabled is a no-op. The legacy `DOWN` enum value remains
+available for existing records; M26 adds `API_DOWN` and maps legacy `DOWN`
+records to it in API responses. New API requests accept only `API_DOWN`.
 
 ### 5.15 `alert_events`
 
 | Column | Type | Constraints |
 | --- | --- | --- |
-| `alert_event_id` | UUID | PK |
-| `alert_id` | UUID | FK |
-| `event_type` | ALERT_EVENT_TYPE | NOT NULL |
-| `created_at` | TIMESTAMPTZ | NOT NULL |
+| `id` | UUID | PK |
+| `alert_id` | UUID | NOT NULL, FK to `alerts.id`, ON DELETE CASCADE |
+| `event_type` | VARCHAR(50) | NOT NULL; M28 writes `TRIGGERED` or `RECOVERED` |
+| `message` | TEXT | NULL |
 | `metadata` | JSONB | NULL |
+| `triggered_at` | TIMESTAMPTZ | NULL; populated for trigger events |
+| `resolved_at` | TIMESTAMPTZ | NULL; populated for recovery events |
+| `occurred_at` | TIMESTAMPTZ | NOT NULL; added by migration 12 |
+
+`occurred_at` is the time of that event. Existing rows are backfilled from
+their legacy event timestamps before the new column is made non-null. New
+trigger events populate `triggered_at`; new recovery events populate
+`resolved_at`. Event history belongs to `alert_events`; user actions continue
+to use `audit_logs`.
 
 ### 5.16 `audit_logs`
 

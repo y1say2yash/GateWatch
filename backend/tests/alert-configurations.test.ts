@@ -568,7 +568,10 @@ test('returns the standard generic error when alert persistence fails', async ()
         CREATE FUNCTION ${functionName}() RETURNS trigger
         LANGUAGE plpgsql AS $$
         BEGIN
-            RAISE EXCEPTION 'injected alert persistence failure';
+            IF NEW.name = 'Persistence failure' THEN
+                RAISE EXCEPTION 'injected alert persistence failure';
+            END IF;
+            RETURN NEW;
         END;
         $$
     `);
@@ -617,9 +620,12 @@ test('returns the standard generic error when alert persistence fails', async ()
             await database.raw(
                 `DROP TRIGGER IF EXISTS ${triggerName} ON alerts`,
             );
-            await database.raw(`DROP FUNCTION IF EXISTS ${functionName}()`);
         } finally {
-            consoleErrorMock.mock.restore();
+            try {
+                await database.raw(`DROP FUNCTION IF EXISTS ${functionName}()`);
+            } finally {
+                consoleErrorMock.mock.restore();
+            }
         }
     }
 });

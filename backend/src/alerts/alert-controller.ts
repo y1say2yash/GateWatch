@@ -11,11 +11,16 @@ import {
     deleteUserAlert,
     evaluateUserAlert,
     getUserAlert,
+    listUserAlertEvents,
     listUserApiAlerts,
     setUserAlertEnabled,
+    transitionUserAlert,
     updateUserAlert,
 } from './alert-service.js';
-import { AlertValidationError } from './alert-validation.js';
+import {
+    AlertQueryValidationError,
+    AlertValidationError,
+} from './alert-validation.js';
 
 function handleAlertError(error: unknown, response: Response): void {
     if (sendAuditLogFailure(error, response)) {
@@ -25,6 +30,15 @@ function handleAlertError(error: unknown, response: Response): void {
         response.status(400).json({
             error: {
                 code: 'INVALID_ALERT_CONFIG',
+                message: error.message,
+            },
+        });
+        return;
+    }
+    if (error instanceof AlertQueryValidationError) {
+        response.status(400).json({
+            error: {
+                code: 'INVALID_ALERT_QUERY',
                 message: error.message,
             },
         });
@@ -209,6 +223,37 @@ export async function evaluateAlertController(
             request.params.alertId,
         );
         response.status(200).json({ data: evaluation });
+    } catch (error) {
+        handleAlertError(error, response);
+    }
+}
+
+export async function transitionAlertController(
+    request: Request<{ alertId: string }>,
+    response: Response,
+): Promise<void> {
+    try {
+        const evaluation = await transitionUserAlert(
+            response.locals.user.id,
+            request.params.alertId,
+        );
+        response.status(200).json({ data: evaluation });
+    } catch (error) {
+        handleAlertError(error, response);
+    }
+}
+
+export async function listAlertEventsController(
+    request: Request<{ alertId: string }, unknown, unknown, Record<string, unknown>>,
+    response: Response,
+): Promise<void> {
+    try {
+        const result = await listUserAlertEvents(
+            response.locals.user.id,
+            request.params.alertId,
+            request.query,
+        );
+        response.status(200).json(result);
     } catch (error) {
         handleAlertError(error, response);
     }

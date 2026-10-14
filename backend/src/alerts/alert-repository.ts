@@ -1,12 +1,16 @@
 import database from '../config/database.js';
 
 import type {
+    AlertEvent,
+    AlertEventPage,
     Alert,
     AlertConfiguration,
+    AlertRuntimeState,
     AlertType,
     CreateAlertInput,
     UpdateAlertInput,
 } from './alert-types.js';
+import type { Knex } from 'knex';
 
 interface AlertRow {
     id: string;
@@ -14,6 +18,9 @@ interface AlertRow {
     name: string;
     type: string;
     status: 'ACTIVE' | 'RESOLVED' | 'DISABLED' | 'DELETED';
+    runtime_state: AlertRuntimeState;
+    triggered_at: Date | null;
+    recovered_at: Date | null;
     configuration: AlertConfiguration;
     enabled: boolean;
     created_at: Date;
@@ -44,6 +51,9 @@ function mapAlert(row: AlertRow): Alert {
         type: normalizeType(row.type),
         configuration: row.configuration,
         enabled: row.enabled,
+        runtimeState: row.runtime_state,
+        triggeredAt: row.triggered_at?.toISOString() ?? null,
+        recoveredAt: row.recovered_at?.toISOString() ?? null,
         createdAt: row.created_at.toISOString(),
         updatedAt: row.updated_at.toISOString(),
         deletedAt: row.deleted_at?.toISOString() ?? null,
@@ -64,22 +74,28 @@ function ownedApiQuery(userId: string, apiId: string) {
         .whereNull('projects.deleted_at');
 }
 
-function ownedAlertQuery(userId: string, alertId: string) {
-    return database<AlertRow>('alerts')
+function ownedAlertQuery(
+    userId: string,
+    alertId: string,
+    connection: Knex | Knex.Transaction = database,
+) {
+    return connection<AlertRow>('alerts')
         .join('apis', 'apis.id', 'alerts.api_id')
         .join('projects', 'projects.id', 'apis.project_id')
-        .where({
-            'alerts.id': alertId,
-            'projects.user_id': userId,
-        })
+        .where('alerts.id', alertId)
+        .andWhere('projects.user_id', userId)
         .whereIn('apis.status', VISIBLE_API_STATUSES)
         .whereNull('alerts.deleted_at')
         .whereNull('apis.deleted_at')
         .whereNull('projects.deleted_at');
 }
 
-function ownedAlertMutationQuery(userId: string, alertId: string) {
-    return database<AlertRow>('alerts')
+function ownedAlertMutationQuery(
+    userId: string,
+    alertId: string,
+    connection: Knex | Knex.Transaction = database,
+) {
+    return connection<AlertRow>('alerts')
         .where('alerts.id', alertId)
         .whereNull('alerts.deleted_at')
         .whereExists((query) => {
@@ -103,6 +119,9 @@ const ALERT_RETURNING_COLUMNS = [
     'status',
     'configuration',
     'enabled',
+    'runtime_state',
+    'triggered_at',
+    'recovered_at',
     'created_at',
     'updated_at',
     'deleted_at',
@@ -129,11 +148,150 @@ export async function findOwnedApiAlerts(
 export async function findOwnedAlert(
     userId: string,
     alertId: string,
+    connection: Knex | Knex.Transaction = database,
 ): Promise<Alert | null> {
-    const row = await ownedAlertQuery(userId, alertId)
+    const row = await ownedAlertQuery(userId, alertId, connection)
         .select('alerts.*')
         .first();
     return row ? mapAlert(row) : null;
+}
+
+export async function findOwnedAlertForUpdate(
+    userId: string,
+    alertId: string,
+    transaction: Knex.Transaction,
+): Promise<Alert | null> {
+    const row = await ownedAlertQuery(userId, alertId, transaction)
+        .select('alerts.*')
+        .forUpdate('alerts')
+        .first();
+    return row ? mapAlert(row) : null;
+}
+
+export async function transitionAlertState(
+    transaction: Knex.Transaction,
+    alert: Alert,
+    active: boolean,
+    now: Date,
+): Promise<{ alert: Alert; transitioned: boolean }> {
+    if (!alert.enabled) {
+        return { alert, transitioned: false };
+    }
+
+    const nextState: AlertRuntimeState = active ? 'TRIGGERED' : 'INACTIVE';
+    if (nextState === alert.runtimeState) {
+        return { alert, transitioned: false };
+    }
+
+    const transitionType = nextState === 'TRIGGERED'
+        ? 'TRIGGERED'
+        : 'RECOVERED';
+    const update = nextState === 'TRIGGERED'
+        ? {
+            runtime_state: nextState,
+            triggered_at: now,
+            recovered_at: null,
+            updated_at: now,
+        }
+        : {
+            runtime_state: nextState,
+            recovered_at: now,
+            updated_at: now,
+        };
+    const [row] = await transaction<AlertRow>('alerts')
+        .where({ id: alert.id })
+        .whereNull('deleted_at')
+        .update(update)
+        .returning('*');
+
+    if (!row) {
+        throw new Error('Alert state could not be updated.');
+    }
+
+    await transaction('alert_events').insert({
+        alert_id: alert.id,
+        event_type: transitionType,
+        message: transitionType === 'TRIGGERED'
+            ? 'Alert condition became active.'
+            : 'Alert condition recovered.',
+        metadata: { type: alert.type },
+        occurred_at: now,
+        triggered_at: transitionType === 'TRIGGERED' ? now : null,
+        resolved_at: transitionType === 'RECOVERED' ? now : null,
+    });
+
+    return { alert: mapAlert(row), transitioned: true };
+}
+
+interface AlertEventRow {
+    id: string;
+    alert_id: string;
+    event_type: string;
+    message: string | null;
+    metadata: Record<string, unknown> | null;
+    occurred_at: Date;
+}
+
+function mapAlertEvent(row: AlertEventRow): AlertEvent {
+    return {
+        id: row.id,
+        alertId: row.alert_id,
+        eventType: row.event_type,
+        message: row.message,
+        metadata: row.metadata,
+        occurredAt: row.occurred_at.toISOString(),
+    };
+}
+
+function ownedAlertEventQuery(userId: string, alertId: string) {
+    return database<AlertEventRow>('alert_events')
+        .where('alert_events.alert_id', alertId)
+        .whereExists((query) => {
+            query
+                .select(database.raw('1'))
+                .from('alerts')
+                .join('apis', 'apis.id', 'alerts.api_id')
+                .join('projects', 'projects.id', 'apis.project_id')
+                .whereRaw('alerts.id = alert_events.alert_id')
+                .andWhere('projects.user_id', userId)
+                .whereIn('apis.status', VISIBLE_API_STATUSES)
+                .whereNull('alerts.deleted_at')
+                .whereNull('apis.deleted_at')
+                .whereNull('projects.deleted_at');
+        });
+}
+
+export async function findOwnedAlertEvents(
+    userId: string,
+    alertId: string,
+    page: number,
+    limit: number,
+): Promise<AlertEventPage | null> {
+    const owned = await ownedAlertQuery(userId, alertId)
+        .select('alerts.id')
+        .first();
+    if (!owned) {
+        return null;
+    }
+
+    const [{ count }] = await ownedAlertEventQuery(userId, alertId)
+        .count<{ count: string }>({ count: 'id' });
+    const total = Number(count);
+    const rows = await ownedAlertEventQuery(userId, alertId)
+        .orderBy('occurred_at', 'desc')
+        .orderBy('id', 'desc')
+        .limit(limit)
+        .offset((page - 1) * limit);
+
+    return {
+        data: rows.map(mapAlertEvent),
+        pagination: {
+            page,
+            limit,
+            total,
+            totalPages: Math.ceil(total / limit),
+        },
+    };
 }
 
 export async function createOwnedAlert(

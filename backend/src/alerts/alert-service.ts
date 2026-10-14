@@ -1,15 +1,23 @@
+import database from '../config/database.js';
 import {
     createOwnedAlert,
     findOwnedAlert,
+    findOwnedAlertEvents,
+    findOwnedAlertForUpdate,
     findOwnedApiAlerts,
     setOwnedAlertEnabled,
     softDeleteOwnedAlert,
+    transitionAlertState,
     updateOwnedAlert,
 } from './alert-repository.js';
-import { evaluateUserAlert as evaluateStoredAlert } from './alert-evaluator.js';
+import {
+    evaluateAlertForOwnedAlert,
+    evaluateUserAlert as evaluateStoredAlert,
+} from './alert-evaluator.js';
 import type { AlertType } from './alert-types.js';
 import {
     validateAlertConfiguration,
+    validateAlertEventPagination,
     validateCreateAlertInput,
     validateUpdateAlertInput,
 } from './alert-validation.js';
@@ -133,4 +141,60 @@ export async function evaluateUserAlert(
         }
         throw error;
     }
+}
+
+export async function transitionUserAlert(
+    userId: string,
+    alertId: string,
+    now: Date = new Date(),
+) {
+    requireUuid(alertId);
+    return database.transaction(async (transaction) => {
+        const alert = await findOwnedAlertForUpdate(
+            userId,
+            alertId,
+            transaction,
+        );
+        if (!alert) {
+            throw new AlertNotFoundError();
+        }
+
+        const evaluation = await evaluateAlertForOwnedAlert(
+            userId,
+            alert,
+            now,
+            transaction,
+        );
+        const transition = await transitionAlertState(
+            transaction,
+            alert,
+            evaluation.active,
+            now,
+        );
+
+        return {
+            ...evaluation,
+            runtimeState: transition.alert.runtimeState,
+            transitioned: transition.transitioned,
+        };
+    });
+}
+
+export async function listUserAlertEvents(
+    userId: string,
+    alertId: string,
+    query: Record<string, unknown>,
+) {
+    requireUuid(alertId);
+    const pagination = validateAlertEventPagination(query);
+    const events = await findOwnedAlertEvents(
+        userId,
+        alertId,
+        pagination.page,
+        pagination.limit,
+    );
+    if (!events) {
+        throw new AlertNotFoundError();
+    }
+    return events;
 }

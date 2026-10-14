@@ -1,4 +1,5 @@
 import database from '../config/database.js';
+import type { Knex } from 'knex';
 import type { HealthCheckRecord, HealthStatus } from '../health/health-types.js';
 import { findOwnedHealthHistory, findOwnedHealthStatus } from '../health/health-repository.js';
 import type { MonitoringSummary } from '../monitoring/monitoring-types.js';
@@ -175,9 +176,10 @@ async function buildEvaluationContext(
     userId: string,
     alert: Alert,
     now: Date,
+    connection: Knex | Knex.Transaction = database,
 ): Promise<AlertEvaluationContext> {
     const [apiStatusRow, healthStatus, history, intervalSecondsRow] = await Promise.all([
-        database('apis')
+        connection('apis')
             .join('projects', 'projects.id', 'apis.project_id')
             .where({
                 'apis.id': alert.apiId,
@@ -188,9 +190,9 @@ async function buildEvaluationContext(
             .whereNull('projects.deleted_at')
             .select('apis.status', 'apis.health_status')
             .first(),
-        findOwnedHealthStatus(userId, alert.apiId),
-        findOwnedHealthHistory(userId, alert.apiId, 100),
-        database('health_check_configs')
+        findOwnedHealthStatus(userId, alert.apiId, connection),
+        findOwnedHealthHistory(userId, alert.apiId, 100, connection),
+        connection('health_check_configs')
             .join('apis', 'apis.id', 'health_check_configs.api_id')
             .join('projects', 'projects.id', 'apis.project_id')
             .where({
@@ -213,7 +215,12 @@ async function buildEvaluationContext(
             ? await (async () => {
                 const config = alert.configuration as { windowSeconds: number };
                 const from = new Date(now.getTime() - config.windowSeconds * 1_000);
-                const rows = await findOwnedApiMonitoringRows(userId, alert.apiId, { from, to: now });
+                const rows = await findOwnedApiMonitoringRows(
+                    userId,
+                    alert.apiId,
+                    { from, to: now },
+                    connection,
+                );
                 return rows ? buildMonitoringSummary(alert.apiId, { from, to: now }, rows) : null;
             })()
             : null;
@@ -229,18 +236,13 @@ async function buildEvaluationContext(
     };
 }
 
-export async function evaluateUserAlert(
+export async function evaluateAlertForOwnedAlert(
     userId: string,
-    alertId: string,
+    alert: Alert,
     now: Date = new Date(),
+    connection: Knex | Knex.Transaction = database,
 ): Promise<AlertEvaluationResult> {
-    const alert = await findOwnedAlert(userId, alertId);
-
-    if (!alert) {
-        throw new Error('Alert not found.');
-    }
-
-    const context = await buildEvaluationContext(userId, alert, now);
+    const context = await buildEvaluationContext(userId, alert, now, connection);
     const active = evaluateAlertCondition(alert, context);
 
     return {
@@ -256,4 +258,17 @@ export async function evaluateUserAlert(
             summary: context.monitoringSummary,
         },
     };
+}
+
+export async function evaluateUserAlert(
+    userId: string,
+    alertId: string,
+    now: Date = new Date(),
+    connection: Knex | Knex.Transaction = database,
+): Promise<AlertEvaluationResult> {
+    const alert = await findOwnedAlert(userId, alertId, connection);
+    if (!alert) {
+        throw new Error('Alert not found.');
+    }
+    return evaluateAlertForOwnedAlert(userId, alert, now, connection);
 }
