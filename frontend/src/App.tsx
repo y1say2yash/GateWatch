@@ -15,6 +15,11 @@ import { DashboardPage } from './pages/DashboardPage';
 import { LoginPage } from './pages/LoginPage';
 import { MonitoringPage } from './pages/MonitoringPage';
 import { NotFoundPage } from './pages/NotFoundPage';
+import { ApiDetailPage } from './pages/ApiDetailPage';
+import { CreateApiPage } from './pages/CreateApiPage';
+import { ProjectApisPage } from './pages/ProjectApisPage';
+import { ProjectDetailPage } from './pages/ProjectDetailPage';
+import { ProjectsPage } from './pages/ProjectsPage';
 import { SettingsPage } from './pages/SettingsPage';
 
 function PageLoader(): ReactElement {
@@ -66,7 +71,12 @@ function AppRoutes(): ReactElement {
       <Route element={<ProtectedLayout />}>
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/dashboard" element={<DashboardPage />} />
+        <Route path="/projects" element={<ProjectsPage />} />
+        <Route path="/projects/:projectId" element={<ProjectDetailPage />} />
+        <Route path="/projects/:projectId/apis" element={<ProjectApisPage />} />
+        <Route path="/projects/:projectId/apis/new" element={<CreateApiPage />} />
         <Route path="/apis" element={<APIsPage />} />
+        <Route path="/apis/:apiId" element={<ApiDetailPage />} />
         <Route path="/monitoring" element={<MonitoringPage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Route>

@@ -1,4 +1,5 @@
 import type { ReactElement } from 'react';
+import { Link } from 'react-router-dom';
 
 export function APIsPage(): ReactElement {
   return (
@@ -10,10 +11,13 @@ export function APIsPage(): ReactElement {
         </div>
       </header>
       <section className="panel">
-        <h2>Configuration placeholder</h2>
+        <h2>Choose a project</h2>
         <p>
-          API management, routing, and authentication configuration will be added in a later milestone.
+          APIs are managed within a project. Select a project to view its registered APIs or create a project first.
         </p>
+        <Link className="primary-button inline-link" to="/projects">
+          Browse projects
+        </Link>
       </section>
     </div>
   );
