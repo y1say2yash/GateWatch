@@ -634,17 +634,26 @@ independent from its health status.
 
 | Column | Type | Constraints |
 | --- | --- | --- |
-| `alert_id` | UUID | PK |
+| `id` | UUID | PK |
 | `api_id` | UUID | FK |
+| `name` | VARCHAR(100) | NOT NULL |
 | `type` | ALERT_TYPE | NOT NULL |
-| `configuration` | JSONB | NOT NULL |
-| `state` | ALERT_STATE | NOT NULL |
-| `enabled` | BOOLEAN | NOT NULL |
-| `triggered_at` | TIMESTAMPTZ | NULL |
-| `recovered_at` | TIMESTAMPTZ | NULL |
+| `status` | ALERT_STATUS | NOT NULL |
+| `configuration` | JSONB | NOT NULL; added by migration 11 |
+| `enabled` | BOOLEAN | NOT NULL, defaults to `true` |
+| `threshold` | INTEGER | NULL; retained for legacy rows |
+| `duration_seconds` | INTEGER | NULL; retained for legacy rows |
 | `created_at` | TIMESTAMPTZ | NOT NULL |
 | `updated_at` | TIMESTAMPTZ | NOT NULL |
 | `deleted_at` | TIMESTAMPTZ | NULL |
+
+The original gateway-monitoring migration uses `id`, `name`, `status`,
+`threshold`, and `duration_seconds` rather than the earlier proposed
+`alert_id`/`state` layout. Alert configuration CRUD preserves those existing
+columns and adds JSONB `configuration`; it does not implement alert state
+transitions or event history. The legacy `DOWN` enum value remains available
+for existing records; M26 adds `API_DOWN` and maps legacy `DOWN` records to it
+in API responses. New API requests accept only `API_DOWN`.
 
 ### 5.15 `alert_events`
 

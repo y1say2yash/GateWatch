@@ -700,10 +700,32 @@ GET    /api/v1/apis/:apiId/alerts
 POST   /api/v1/apis/:apiId/alerts
 GET    /api/v1/alerts/:alertId
 PATCH  /api/v1/alerts/:alertId
+POST   /api/v1/alerts/:alertId/enable
+POST   /api/v1/alerts/:alertId/disable
 DELETE /api/v1/alerts/:alertId
 ```
 
-`DELETE` soft-deletes the alert configuration.
+All alert management endpoints require an authenticated user who owns the API
+through its project. Foreign and deleted resources are returned as not found.
+`DELETE` soft-deletes the alert configuration. List responses use the standard
+`data` wrapper and return active (not soft-deleted) configurations.
+
+Create requests require `name`, `type`, and `configuration`. Updates accept
+any non-empty subset of `name`, `type`, and `configuration`; if `type` or
+`configuration` changes, the complete resulting configuration is validated.
+The supported configurations are:
+
+| Type | Configuration |
+| --- | --- |
+| `API_DOWN` | `{}`; no additional fields |
+| `UNHEALTHY_DURATION` | `durationSeconds`: integer from 1 to 604800 |
+| `ERROR_RATE` | `threshold`: number greater than 0 and at most 1; `windowSeconds`: integer from 60 to 86400 |
+| `LATENCY` | `thresholdMs`: integer from 1 to 60000; `windowSeconds`: integer from 60 to 86400 |
+
+`ERROR_RATE.threshold` uses the same 0–1 ratio as the monitoring summary
+(for example, `0.05` represents 5%). Latency is measured in milliseconds,
+and durations/windows are measured in seconds. These are M26 configuration
+units and bounds; evaluation is outside this milestone.
 
 ### Alert Events
 
