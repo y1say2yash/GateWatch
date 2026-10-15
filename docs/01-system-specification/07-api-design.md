@@ -551,8 +551,10 @@ These endpoints require a GateWatch session and enforce ownership through
 test → API → project → user. Admin role does not grant ownership. Tests use
 soft deletion.
 
-M23 provides these backend endpoints only; the user-facing interface is
-deferred until the frontend foundation is established.
+The M35 frontend consumes these authenticated endpoints for test-definition
+management. The current implementation has no endpoint for listing or
+retrieving persisted test executions; manual execution results are returned
+only by the execute request.
 
 Create and PATCH bodies accept `name`, `method`, absolute `url`, `headers`
 (string-valued JSON object), `body` (JSON), `authentication`, `assertions`,
@@ -576,7 +578,9 @@ username/header metadata, and `credentialConfigured`; they never include
 credential values. When updating a configured credential, omit its value to
 retain it, or provide a replacement.
 
-Assertions are a JSON array of at most 50 objects:
+Assertions are a JSON array of at most 50 objects. The M35 UI requires at
+least one assertion for a saved test so that a manual run verifies an
+expectation; the backend API contract permits an empty array.
 
 ```json
 [
@@ -606,6 +610,9 @@ metadata destinations and known local/container hostnames are rejected,
 except origins explicitly listed in `TEST_LOCAL_ALLOWED_ORIGINS` in
 non-production environments. DNS resolution is validated at execution time,
 redirects are disabled, and response bodies are size-limited.
+The backend preserves URL query strings; credentials must not be placed in
+query parameters. The M35 UI masks saved query values and rejects commonly
+credential-named query parameters when a URL is newly entered or changed.
 
 Create returns `201`, reads and updates return `200`, and soft-delete returns
 `204`. Invalid definitions return structured `400` errors, missing or
@@ -652,10 +659,10 @@ response cannot assume the execution did not occur.
 
 ### Test Executions
 
-```
-GET /api/v1/tests/:testId/executions
-GET /api/v1/test-executions/:executionId
-```
+Executions are persisted, but the current backend does not implement an
+execution-history read endpoint. The frontend therefore displays the latest
+manual result returned directly by `POST /api/v1/tests/:testId/execute` and
+does not claim to show historical runs.
 
 ### 11.8 Request History
 
@@ -690,8 +697,30 @@ contains `apiId`, `period`, `totalRequests`, `statusCodeCounts`,
 `averageLatencyMs`, `errorCount`, and `errorRate`. Errors are status codes
 greater than or equal to 400; `errorRate` is `errorCount / totalRequests`, or
 zero when no requests match. `averageLatencyMs` is `null` when the range has no
-recorded latency. Health-check history continues to use
-`GET /api/v1/apis/:apiId/health/history`.
+recorded latency.
+
+### Monitoring Time Series
+
+```
+GET /api/v1/apis/:apiId/monitoring/timeseries?from=<timestamp>&to=<timestamp>
+```
+
+Both inclusive timestamps are required and `from` must not be later than `to`.
+The maximum range is 90 days. Ranges up to 48 hours use UTC-aligned hourly
+buckets; longer ranges use UTC-aligned daily buckets. The response is wrapped
+in `data` and contains `apiId`, `period`, `bucketSize`, and an ascending
+`buckets` array. Each bucket includes `bucketStart`, `requestCount`, status
+counts for 1xx, 2xx, 3xx, 4xx, 5xx and out-of-range status codes, plus the
+count and average latency of records with a recorded response time. Empty
+time buckets are returned with zero request and status counts and a `null`
+average latency.
+
+The endpoint aggregates persisted request-history records using PostgreSQL
+time buckets and the existing `(api_id, created_at)` index. It uses the same
+authenticated session and owned-API checks as the summary endpoint. Request
+and response bodies, client identity, credentials, and upstream configuration
+are not returned. It is not a gateway-wide or infrastructure metric. Health
+history continues to use `GET /api/v1/apis/:apiId/health/history`.
 
 ### 11.9 Alerts
 

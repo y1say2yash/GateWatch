@@ -11,6 +11,7 @@ import { BrowserRouter } from 'react-router-dom';
 import { AppShell } from './components/layout/AppShell';
 import { AuthProvider, useAuth } from './features/auth/auth-context';
 import { APIsPage } from './pages/APIsPage';
+import { AlertsPage } from './pages/AlertsPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { LoginPage } from './pages/LoginPage';
 import { MonitoringPage } from './pages/MonitoringPage';
@@ -21,6 +22,7 @@ import { ProjectApisPage } from './pages/ProjectApisPage';
 import { ProjectDetailPage } from './pages/ProjectDetailPage';
 import { ProjectsPage } from './pages/ProjectsPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { TestingPage } from './pages/TestingPage';
 
 function PageLoader(): ReactElement {
   return <div className="page-state"><span className="loader" />Loading GateWatch...</div>;
@@ -78,6 +80,8 @@ function AppRoutes(): ReactElement {
         <Route path="/apis" element={<APIsPage />} />
         <Route path="/apis/:apiId" element={<ApiDetailPage />} />
         <Route path="/monitoring" element={<MonitoringPage />} />
+        <Route path="/testing" element={<TestingPage />} />
+        <Route path="/alerts" element={<AlertsPage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Route>
 

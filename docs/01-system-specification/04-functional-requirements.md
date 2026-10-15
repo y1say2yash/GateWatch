@@ -317,9 +317,12 @@ metadata targets are rejected unless an explicit non-production allowlist is
 configured. Authentication secrets are encrypted at rest and are never
 returned by management APIs.
 
-The M23 implementation provides backend management endpoints only. A
-user-facing test-definition interface is deferred until the frontend
-foundation is established.
+The M35 frontend provides an authenticated interface to create, list, update,
+soft-delete, and manually execute these definitions. The interface keeps
+credentials in the dedicated authentication fields and shows safe assertion
+summaries without rendering upstream response values or bodies. The current
+backend has no execution-history read endpoint, so the interface can show a
+run result only while it remains in the current page session.
 
 ### FR-TEST-002 — Manual Test Execution (M24)
 
@@ -490,7 +493,9 @@ GateWatch shall support alerts when the configured latency threshold is exceeded
 
 ### FR-MON-013 — Notification Delivery
 
-GateWatch shall support configured notification mechanisms for alerts, including AWS SNS.
+Configured notification delivery, including AWS SNS, remains a future
+capability. The M36 alert interface manages rules and their evaluated runtime
+events; it does not configure or send notifications.
 
 ### FR-MON-014 — Advanced Alert Rules
 

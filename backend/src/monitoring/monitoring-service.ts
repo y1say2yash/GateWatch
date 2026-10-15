@@ -1,8 +1,15 @@
-import { findOwnedApiMonitoringRows } from './monitoring-repository.js';
+import {
+    findOwnedApiMonitoringRows,
+    findOwnedApiMonitoringTimeSeriesRows,
+} from './monitoring-repository.js';
 import type {
+    MonitoringBucketSize,
     MonitoringDateRange,
     MonitoringStatusRow,
     MonitoringSummary,
+    MonitoringTimeSeries,
+    MonitoringTimeSeriesPoint,
+    MonitoringTimeSeriesRow,
 } from './monitoring-types.js';
 
 export class MonitoringApiNotFoundError extends Error {
@@ -20,6 +27,13 @@ export class MonitoringValidationError extends Error {
 }
 
 const ALLOWED_QUERY_KEYS = new Set(['from', 'to']);
+const MAX_TIME_SERIES_RANGE_MS = 90 * 24 * 60 * 60 * 1_000;
+const HOURLY_BUCKET_MAX_RANGE_MS = 48 * 60 * 60 * 1_000;
+const TIME_SERIES_BUCKET_LIMIT = 92;
+const BUCKET_INTERVAL_MS: Record<MonitoringBucketSize, number> = {
+    hour: 60 * 60 * 1_000,
+    day: 24 * 60 * 60 * 1_000,
+};
 const UUID_PATTERN =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -76,6 +90,39 @@ export function validateMonitoringDateRange(
     return { from, to };
 }
 
+export interface MonitoringTimeSeriesRange extends Required<MonitoringDateRange> {
+    bucketSize: MonitoringBucketSize;
+}
+
+export function validateMonitoringTimeSeriesRange(
+    query: Record<string, unknown>,
+): MonitoringTimeSeriesRange {
+    const range = validateMonitoringDateRange(query);
+    if (!range.from || !range.to) {
+        throw new MonitoringValidationError(
+            'from and to are required for monitoring time series.',
+        );
+    }
+
+    const rangeMs = range.to.getTime() - range.from.getTime();
+    if (rangeMs > MAX_TIME_SERIES_RANGE_MS) {
+        throw new MonitoringValidationError(
+            'Monitoring time series are limited to a 90-day range.',
+        );
+    }
+
+    const bucketSize = rangeMs <= HOURLY_BUCKET_MAX_RANGE_MS ? 'hour' : 'day';
+    const firstBucket = Math.floor(range.from.getTime() / BUCKET_INTERVAL_MS[bucketSize]);
+    const lastBucket = Math.floor(range.to.getTime() / BUCKET_INTERVAL_MS[bucketSize]);
+    if (lastBucket - firstBucket + 1 > TIME_SERIES_BUCKET_LIMIT) {
+        throw new MonitoringValidationError(
+            'The requested monitoring time series contains too many buckets.',
+        );
+    }
+
+    return { from: range.from, to: range.to, bucketSize };
+}
+
 export function buildMonitoringSummary(
     apiId: string,
     range: MonitoringDateRange,
@@ -121,6 +168,56 @@ export function buildMonitoringSummary(
     };
 }
 
+function numericCount(value: string | number): number {
+    return Number(value);
+}
+
+export function buildMonitoringTimeSeries(
+    apiId: string,
+    range: MonitoringTimeSeriesRange,
+    rows: MonitoringTimeSeriesRow[],
+): MonitoringTimeSeries {
+    const bucketIntervalMs = BUCKET_INTERVAL_MS[range.bucketSize];
+    const firstBucket = Math.floor(range.from.getTime() / bucketIntervalMs) * bucketIntervalMs;
+    const lastBucket = Math.floor(range.to.getTime() / bucketIntervalMs) * bucketIntervalMs;
+    const rowsByBucket = new Map(
+        rows.map((row) => [new Date(row.bucket_start).getTime(), row]),
+    );
+    const buckets: MonitoringTimeSeriesPoint[] = [];
+
+    for (let bucketTime = firstBucket; bucketTime <= lastBucket; bucketTime += bucketIntervalMs) {
+        const row = rowsByBucket.get(bucketTime);
+        const latencyCount = row ? numericCount(row.latency_count) : 0;
+        buckets.push({
+            bucketStart: new Date(bucketTime).toISOString(),
+            requestCount: row ? numericCount(row.request_count) : 0,
+            statusCounts: {
+                informational: row ? numericCount(row.informational_count) : 0,
+                successful: row ? numericCount(row.successful_count) : 0,
+                redirection: row ? numericCount(row.redirection_count) : 0,
+                clientError: row ? numericCount(row.client_error_count) : 0,
+                serverError: row ? numericCount(row.server_error_count) : 0,
+                other: row ? numericCount(row.other_count) : 0,
+            },
+            latencyCount,
+            averageLatencyMs:
+                row?.average_latency === null || row?.average_latency === undefined
+                    ? null
+                    : Number(row.average_latency),
+        });
+    }
+
+    return {
+        apiId,
+        period: {
+            from: range.from.toISOString(),
+            to: range.to.toISOString(),
+        },
+        bucketSize: range.bucketSize,
+        buckets,
+    };
+}
+
 export async function getUserApiMonitoringSummary(
     userId: string,
     apiId: string,
@@ -134,4 +231,24 @@ export async function getUserApiMonitoringSummary(
         throw new MonitoringApiNotFoundError();
     }
     return buildMonitoringSummary(apiId, range, rows);
+}
+
+export async function getUserApiMonitoringTimeSeries(
+    userId: string,
+    apiId: string,
+    range: MonitoringTimeSeriesRange,
+): Promise<MonitoringTimeSeries> {
+    if (!UUID_PATTERN.test(apiId)) {
+        throw new MonitoringApiNotFoundError();
+    }
+    const rows = await findOwnedApiMonitoringTimeSeriesRows(
+        userId,
+        apiId,
+        range,
+        range.bucketSize,
+    );
+    if (!rows) {
+        throw new MonitoringApiNotFoundError();
+    }
+    return buildMonitoringTimeSeries(apiId, range, rows);
 }

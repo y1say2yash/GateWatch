@@ -7,6 +7,7 @@ import { after, before, mock, test } from 'node:test';
 
 import database from '../src/config/database.js';
 import { createApi } from '../src/apis/api-repository.js';
+import apiRoutes from '../src/apis/api-routes.js';
 import gatewayRoutes from '../src/gateway/gateway-routes.js';
 import {
     findOwnedApiRequestHistory,
@@ -19,7 +20,9 @@ import {
 } from '../src/request-history/request-history-service.js';
 import {
     getUserApiMonitoringSummary,
+    getUserApiMonitoringTimeSeries,
     MonitoringApiNotFoundError,
+    validateMonitoringTimeSeriesRange,
 } from '../src/monitoring/monitoring-service.js';
 import { nextTestGithubId } from './test-user-identity.js';
 
@@ -31,6 +34,7 @@ let routeId: string;
 let projectSlug: string;
 let upstream: Server;
 let gateway: Server;
+let management: Server;
 let gatewayPort: number;
 let upstreamPort: number;
 
@@ -93,6 +97,11 @@ before(async () => {
     await new Promise<void>((resolve) => gateway.once('listening', resolve));
     gatewayPort = (gateway.address() as AddressInfo).port;
 
+    const managementApp = express();
+    managementApp.use('/api/v1', apiRoutes);
+    management = managementApp.listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => management.once('listening', resolve));
+
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const [owner] = await database<{ id: string }>('users')
         .insert({
@@ -141,6 +150,9 @@ before(async () => {
 });
 
 after(async () => {
+    if (management) {
+        await new Promise<void>((resolve) => management.close(() => resolve()));
+    }
     if (gateway) {
         await new Promise<void>((resolve) => gateway.close(() => resolve()));
     }
@@ -366,4 +378,86 @@ test('aggregates monitoring statistics and handles an empty time range', async (
         getUserApiMonitoringSummary(otherUserId, apiId, {}),
         MonitoringApiNotFoundError,
     );
+});
+
+test('aggregates bounded monitoring time series and enforces API ownership', async () => {
+    const from = new Date('2026-02-01T00:10:00.000Z');
+    const to = new Date('2026-02-01T02:00:00.000Z');
+    const records = [
+        { statusCode: 200, latencyMs: 10, timestamp: '2026-02-01T00:15:00.000Z' },
+        { statusCode: 200, latencyMs: 30, timestamp: '2026-02-01T00:20:00.000Z' },
+        { statusCode: 302, latencyMs: 20, timestamp: '2026-02-01T00:30:00.000Z' },
+        { statusCode: 404, latencyMs: 40, timestamp: '2026-02-01T00:40:00.000Z' },
+        { statusCode: 500, latencyMs: 100, timestamp: '2026-02-01T01:10:00.000Z' },
+        { statusCode: 600, latencyMs: 200, timestamp: '2026-02-01T01:20:00.000Z' },
+        { statusCode: 100, latencyMs: 300, timestamp: '2026-02-01T01:30:00.000Z' },
+    ];
+    await Promise.all(records.map((record) =>
+        recordGatewayRequest({
+            requestId: randomUUID(),
+            apiId,
+            routeId,
+            method: 'GET',
+            path: '/series',
+            statusCode: record.statusCode,
+            latencyMs: record.latencyMs,
+            clientIdentity: null,
+            timestamp: new Date(record.timestamp),
+            result: { source: 'upstream' },
+        }),
+    ));
+
+    const range = validateMonitoringTimeSeriesRange({
+        from: from.toISOString(),
+        to: to.toISOString(),
+    });
+    const series = await getUserApiMonitoringTimeSeries(ownerId, apiId, range);
+    assert.equal(series.bucketSize, 'hour');
+    assert.equal(series.buckets.length, 3);
+    assert.deepEqual(series.buckets[0], {
+        bucketStart: '2026-02-01T00:00:00.000Z',
+        requestCount: 4,
+        statusCounts: {
+            informational: 0,
+            successful: 2,
+            redirection: 1,
+            clientError: 1,
+            serverError: 0,
+            other: 0,
+        },
+        latencyCount: 4,
+        averageLatencyMs: 25,
+    });
+    assert.deepEqual(series.buckets[1]?.statusCounts, {
+        informational: 1,
+        successful: 0,
+        redirection: 0,
+        clientError: 0,
+        serverError: 1,
+        other: 1,
+    });
+    assert.equal(series.buckets[1]?.requestCount, 3);
+    assert.equal(series.buckets[1]?.averageLatencyMs, 200);
+    assert.equal(series.buckets[2]?.requestCount, 0);
+    assert.equal(series.buckets[2]?.averageLatencyMs, null);
+
+    await assert.rejects(
+        getUserApiMonitoringTimeSeries(otherUserId, apiId, range),
+        MonitoringApiNotFoundError,
+    );
+});
+
+test('requires an authenticated session for the time-series endpoint', async () => {
+    const address = management.address() as AddressInfo;
+    const response = await fetch(
+        `http://127.0.0.1:${address.port}/api/v1/apis/${apiId}/monitoring/timeseries?from=2026-02-01T00:00:00.000Z&to=2026-02-01T01:00:00.000Z`,
+    );
+
+    assert.equal(response.status, 401);
+    assert.deepEqual(await response.json(), {
+        error: {
+            code: 'AUTHENTICATION_REQUIRED',
+            message: 'Authentication is required.',
+        },
+    });
 });
