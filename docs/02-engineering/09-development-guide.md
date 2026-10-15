@@ -358,6 +358,19 @@ changes must use a new forward migration.
 
 Docker Compose is the standard way to run GateWatch locally.
 
+Create the local environment file from the committed template before starting
+Compose, and set a non-empty `POSTGRES_PASSWORD` for the local PostgreSQL
+container:
+
+```bash
+cp .env.example .env
+```
+
+GitHub OAuth values may remain empty unless OAuth login is being configured.
+`TEST_CREDENTIAL_ENCRYPTION_KEY` may remain empty for tests without stored
+credentials; generate and configure a valid key using the instructions above
+before storing or executing credentialed tests.
+
 Build and start the complete development environment:
 
 ```bash

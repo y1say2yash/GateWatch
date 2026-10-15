@@ -199,7 +199,7 @@ export async function executeUserTest(
             url: test.url,
             headers: test.headers,
             body: test.body,
-            authentication: storedAuthentication(rawStoredAuthentication) ?? { type: 'NONE' },
+            authentication: { type: 'NONE' },
             assertions: test.assertions,
             timeoutMs: test.timeoutMs,
         },

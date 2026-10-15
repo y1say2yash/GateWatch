@@ -8,6 +8,7 @@ import { after, before, test } from 'node:test';
 
 import app from '../src/app.js';
 import database from '../src/config/database.js';
+import { protectAuthentication } from '../src/tests/test-credentials.js';
 import { nextTestGithubId } from './test-user-identity.js';
 
 let upstreamServer: Server | undefined;
@@ -176,6 +177,12 @@ before(async () => {
             }));
             return;
         }
+        if (request.url === '/credentialed') {
+            const authorized = request.headers.authorization === 'Bearer test-only-credential';
+            response.writeHead(authorized ? 200 : 401, { 'content-type': 'application/json' });
+            response.end(JSON.stringify({ authorized }));
+            return;
+        }
         response.writeHead(200, {
             'content-type': 'application/json',
             'set-cookie': 'session=upstream-secret; HttpOnly',
@@ -316,6 +323,31 @@ test('executes a successful test and persists safe manual execution metadata', a
     ));
 });
 
+test('executes tests using encrypted bearer credentials', async () => {
+    await updateDefinition('/credentialed', [
+        { type: 'STATUS_CODE', operator: 'EQUALS', expected: 200 },
+    ]);
+    await database('tests')
+        .where({ id: testId })
+        .update({
+            authentication: JSON.stringify(protectAuthentication({
+                type: 'BEARER',
+                token: 'test-only-credential',
+            })),
+        });
+
+    const response = await request(`/api/v1/tests/${testId}/execute`, ownerCookie, { method: 'POST' });
+    assert.equal(response.status, 200);
+    const execution = response.body as {
+        data: { status: string; executionId: string; result: unknown };
+    };
+    assert.equal(execution.data.status, 'PASSED');
+    assert.equal(JSON.stringify(execution.data.result).includes('test-only-credential'), false);
+
+    const stored = await database('tests').where({ id: testId }).first('authentication');
+    assert.equal(JSON.stringify(stored.authentication).includes('test-only-credential'), false);
+});
+
 test('applies security headers without enabling permissive CORS', async () => {
     const response = await fetch(`${origin}/not-a-route`);
     assert.equal(response.status, 404);
@@ -391,12 +423,13 @@ test('persists connection failures as ERROR', async () => {
     assert.equal(persisted.status, 'ERROR');
 });
 
-test('redacts sensitive fields from persisted assertion summaries', async () => {
+test('redacts sensitive fields from failed assertion summaries and persistence', async () => {
     await updateDefinition('/sensitive', [
         {
             type: 'JSON_BODY',
             path: '/profile',
-            operator: 'EXISTS',
+            operator: 'EQUALS',
+            expected: { name: 'Unexpected value' },
         },
     ]);
 
@@ -417,11 +450,12 @@ test('redacts sensitive fields from persisted assertion summaries', async () => 
 
     const persisted = await database('test_executions')
         .where({ id: data.data.executionId })
-        .first('result');
+        .first('result', 'assertions');
 
     const serialized = JSON.stringify({
         response: data.data.result,
         persisted: persisted?.result,
+        persistedAssertions: persisted?.assertions,
     });
 
     assert.equal(serialized.includes('must-not-be-stored'), false);
@@ -508,6 +542,47 @@ test('serves owner-scoped paginated execution summaries without assertion values
     ]) {
         assert.equal(serialized.includes(secret), false);
     }
+});
+
+test('does not interpolate expected values into failed array assertion messages', async () => {
+    const expectedSentinel = 'private-expected-array-value';
+    await updateDefinition('/', [
+        {
+            type: 'JSON_BODY',
+            path: '/items',
+            operator: 'CONTAINS',
+            expected: expectedSentinel,
+        },
+    ]);
+
+    const response = await request(
+        `/api/v1/tests/${testId}/execute`,
+        ownerCookie,
+        { method: 'POST' },
+    );
+    assert.equal(response.status, 200);
+    const data = response.body as {
+        data: {
+            executionId: string;
+            result: { assertions: Array<{ message: string }> };
+        };
+    };
+    const persisted = await database('test_executions')
+        .where({ id: data.data.executionId })
+        .first('assertions');
+    const persistedAssertions = typeof persisted?.assertions === 'string'
+        ? JSON.parse(persisted.assertions) as Array<{ message: string }>
+        : persisted?.assertions as Array<{ message: string }>;
+
+    assert.equal(
+        data.data.result.assertions[0]?.message,
+        'JSON path /items did not contain the expected member.',
+    );
+    assert.equal(
+        persistedAssertions[0]?.message,
+        'JSON path /items did not contain the expected member.',
+    );
+    assert.equal(persistedAssertions[0]?.message.includes(expectedSentinel), false);
 });
 
 test('creates, lists, and revokes access tokens without exposing stored hashes', async () => {

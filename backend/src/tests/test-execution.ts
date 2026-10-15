@@ -361,7 +361,7 @@ function evaluateAssertion(
             actual,
             pass
                 ? `JSON path ${assertion.path} matched the expected value.`
-                : `JSON path ${assertion.path} expected ${JSON.stringify(assertion.expected)}, got ${JSON.stringify(actual)}.`,
+                : `JSON path ${assertion.path} did not match the expected value.`,
         );
     }
     if (assertion.operator === 'NOT_EQUALS') {
@@ -373,7 +373,7 @@ function evaluateAssertion(
             actual,
             pass
                 ? `JSON path ${assertion.path} did not match the forbidden value.`
-                : `JSON path ${assertion.path} unexpectedly matched ${JSON.stringify(assertion.expected)}.`,
+                : `JSON path ${assertion.path} unexpectedly matched the forbidden value.`,
         );
     }
     if (typeof actual === 'string') {
@@ -385,7 +385,7 @@ function evaluateAssertion(
             actual,
             pass
                 ? `JSON path ${assertion.path} contained the expected substring.`
-                : `JSON path ${assertion.path} did not contain ${JSON.stringify(assertion.expected)}.`,
+                : `JSON path ${assertion.path} did not contain the expected substring.`,
         );
     }
     if (Array.isArray(actual)) {
@@ -397,7 +397,7 @@ function evaluateAssertion(
             actual,
             pass
                 ? `JSON path ${assertion.path} contained the expected member.`
-                : `JSON path ${assertion.path} did not contain ${JSON.stringify(assertion.expected)}.`,
+                : `JSON path ${assertion.path} did not contain the expected member.`,
         );
     }
     return buildAssertionResult(
