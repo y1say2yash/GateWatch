@@ -13,7 +13,9 @@ const navItems = [
   { to: '/dashboard', label: 'Overview' },
   { to: '/projects', label: 'Projects' },
   { to: '/apis', label: 'APIs' },
+  { to: '/testing', label: 'Testing' },
   { to: '/monitoring', label: 'Monitoring' },
+  { to: '/alerts', label: 'Alerts' },
   { to: '/settings', label: 'Settings' },
 ];
 

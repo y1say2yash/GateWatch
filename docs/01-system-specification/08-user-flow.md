@@ -455,28 +455,19 @@ Evaluate Assertions
   ↓
 Show Test Result
   ↓
-Save Execution Result
+Return Safe Execution Result
 ```
 
 The complete upstream response is held temporarily in memory during execution and is not persisted as a complete response body.
+Manual test execution requires the associated API to be in the `ACTIVE`
+lifecycle state. This does not imply that the API is currently healthy.
 
-### Test History
+### Test Execution History
 
-Test execution history is available from:
-
-```
-Testing
-  ↓
-Test History
-```
-
-and:
-
-```
-API Details
-  ↓
-Test History
-```
+Executions are persisted by the backend, but no execution-history read
+endpoint is currently implemented. The Testing page displays the result
+returned by a manual run for the current page session only; it does not
+represent that result as a history list.
 
 ### CI/CD Test Flow
 
@@ -665,15 +656,15 @@ Monitoring
 GateWatch supports alerts for API availability and performance conditions.
 
 ```
-Configure Alert
+Select an owned API in Alerts
   ↓
-Monitor Condition
+Create or update an alert rule
+  ↓
+Enable the rule and evaluate its condition
   ↓
 Condition Triggered
   ↓
 Create Alert Event
-  ↓
-Send SNS Notification
   ↓
 Alert Remains Triggered
   ↓
@@ -691,17 +682,20 @@ MVP alert conditions include:
 
 ### Alert Configuration
 
-API-specific alerts can be configured from the API Details monitoring area.
-
-Global alert management is available through:
+Alert rules are managed through:
 
 ```
 Alerts
- ├── Active Alerts
- └── Alert History
+ ├── Select an owned API
+ ├── Create / edit / enable / disable / delete rules
+ ├── Manually evaluate a rule
+ └── View paginated trigger and recovery events
 ```
 
-The global Alerts page provides visibility across projects and APIs owned by the user.
+The page shows configuration enablement separately from runtime trigger state.
+Evaluation and recovery events are recorded by the backend. Evaluation is
+manual in this interface; the page does not provide scheduling or notification
+delivery.
 
 ---
 

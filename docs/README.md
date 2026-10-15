@@ -35,8 +35,6 @@
 - [ ] 12 — Deployment
 - [ ] 13 — Observability
 
-**M34 — Gateway and Monitoring UI:** [Implementation notes](./02-engineering/m34-operations-ui.md)
-
 ### 🟣 Phase 4 — Project Memory & Evolution
 
 **Progress:** `0 / 6`
