@@ -121,9 +121,18 @@ describe('project and API management', () => {
   it('shows an honest empty state when there are no projects', async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ data: [] }));
     renderRoute('/projects', <LocationProbe />);
+    const user = userEvent.setup();
 
-    expect(await screen.findByRole('heading', { name: 'Create your first project' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'No projects yet' })).toBeInTheDocument();
+    expect(screen.getByText('Projects group independently configured APIs. Use Create project to begin.')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Name')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Create project' }));
+    expect(screen.getByRole('button', { name: 'Cancel' })).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByLabelText('Name')).toBeInTheDocument();
+    expect(screen.getByLabelText('Slug')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByLabelText('Name')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'No projects yet' })).toBeInTheDocument();
   });
 
   it('shows a recoverable error when the project list request fails', async () => {
@@ -141,10 +150,12 @@ describe('project and API management', () => {
     renderRoute('/projects', <LocationProbe />);
     const user = userEvent.setup();
 
-    await user.type(await screen.findByLabelText('Name'), 'Inventory');
+    await screen.findByRole('heading', { name: 'No projects yet' });
+    await user.click(screen.getByRole('button', { name: 'Create project' }));
+    await user.type(screen.getByLabelText('Name'), 'Inventory');
     await user.clear(screen.getByLabelText('Slug'));
     await user.type(screen.getByLabelText('Slug'), 'not a valid slug');
-    expect(submitForm('Create project').defaultPrevented).toBe(true);
+    await user.click(screen.getByRole('button', { name: 'Create project' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Slug must use lowercase letters');
     expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -157,9 +168,11 @@ describe('project and API management', () => {
     renderRoute('/projects', <LocationProbe />, { projectDetail: false });
     const user = userEvent.setup();
 
-    await user.type(await screen.findByLabelText('Name'), project.name);
+    await screen.findByRole('heading', { name: 'No projects yet' });
+    await user.click(screen.getByRole('button', { name: 'Create project' }));
+    await user.type(screen.getByLabelText('Name'), project.name);
     expect(screen.getByLabelText('Slug')).toHaveValue(project.slug);
-    expect(submitForm('Create project').defaultPrevented).toBe(true);
+    await user.click(screen.getByRole('button', { name: 'Create project' }));
 
     expect(await screen.findByLabelText('Current location')).toHaveTextContent('/projects/project-1');
     expect(mockFetch).toHaveBeenLastCalledWith(
@@ -179,9 +192,12 @@ describe('project and API management', () => {
     renderRoute('/projects', <LocationProbe />, { projectDetail: false });
     const user = userEvent.setup();
 
-    await user.type(await screen.findByLabelText('Name'), project.name);
-    expect(submitForm('Create project').defaultPrevented).toBe(true);
+    await screen.findByRole('heading', { name: 'No projects yet' });
+    await user.click(screen.getByRole('button', { name: 'Create project' }));
+    await user.type(screen.getByLabelText('Name'), project.name);
+    await user.click(screen.getByRole('button', { name: 'Create project' }));
     const pendingButton = await screen.findByRole('button', { name: 'Creating…' });
+    expect(pendingButton).toBeDisabled();
     await user.click(pendingButton);
 
     expect(mockFetch).toHaveBeenCalledTimes(2);
@@ -465,6 +481,7 @@ describe('project and API management', () => {
     const user = userEvent.setup();
 
     await screen.findByRole('heading', { name: 'Catalog' });
+    await user.click(screen.getByRole('tab', { name: 'Routes' }));
     await user.type(screen.getByLabelText('Add route prefix'), '/catalog');
     await user.click(screen.getByRole('button', { name: 'Add route' }));
 
@@ -500,6 +517,7 @@ describe('project and API management', () => {
     const user = userEvent.setup();
 
     await screen.findByRole('heading', { name: 'Catalog' });
+    await user.click(screen.getByRole('tab', { name: 'Configuration' }));
     await user.clear(screen.getByLabelText('Maximum requests'));
     await user.type(screen.getByLabelText('Maximum requests'), '200');
     expect(submitForm('Save rate limit').defaultPrevented).toBe(true);
@@ -529,6 +547,7 @@ describe('project and API management', () => {
     const user = userEvent.setup();
 
     await screen.findByRole('heading', { name: 'Catalog' });
+    await user.click(screen.getByRole('tab', { name: 'Security' }));
     await user.type(screen.getByLabelText('New key name'), 'Deployment');
     expect(submitForm('Create API key').defaultPrevented).toBe(true);
 

@@ -57,12 +57,23 @@ button {
 
 .app-shell {
   display: flex;
-  min-height: 100vh;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
   background: #f8fafc;
 }
 
 .sidebar {
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  flex: 0 0 280px;
   width: 280px;
+  height: 100vh;
+  height: 100dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   background: linear-gradient(180deg, var(--navy-950) 0%, var(--navy-900) 100%);
   color: #ebf3ff;
   padding: 1.5rem 1.25rem;
@@ -188,6 +199,11 @@ button {
 
 .content-panel {
   flex: 1;
+  min-width: 0;
+  height: 100vh;
+  height: 100dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 2rem 2.5rem;
 }
 
@@ -244,10 +260,65 @@ button {
   transform: translateY(-1px);
 }
 
+.primary-button:focus-visible,
+.secondary-button:focus-visible,
+.success-button:focus-visible,
+.warning-button:focus-visible,
+.danger-button:focus-visible,
+.text-button:focus-visible,
+.api-tab:focus-visible {
+  outline: 3px solid rgba(42, 125, 225, 0.5);
+  outline-offset: 2px;
+}
+
+.primary-button:disabled,
+.secondary-button:disabled,
+.success-button:disabled,
+.warning-button:disabled,
+.danger-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+  transform: none;
+}
+
 .secondary-button {
   border: 1px solid var(--slate-200);
   background: white;
   color: var(--navy-900);
+}
+
+.success-button,
+.warning-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  border-radius: 12px;
+  padding: 0.8rem 1rem;
+  font-weight: 700;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.success-button {
+  border: 1px solid #047857;
+  color: #fff;
+  background: #047857;
+}
+
+.success-button:hover:not(:disabled) {
+  background: #065f46;
+  transform: translateY(-1px);
+}
+
+.warning-button {
+  border: 1px solid #d97706;
+  color: #92400e;
+  background: #fffbeb;
+}
+
+.warning-button:hover:not(:disabled) {
+  background: #fef3c7;
+  transform: translateY(-1px);
 }
 
 .metric-grid {
@@ -423,21 +494,106 @@ button {
 }
 
 .danger-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
   border: 1px solid #fecaca;
   border-radius: 12px;
   padding: 0.8rem 1rem;
   color: #991b1b;
   background: #fff;
   font-weight: 700;
+  transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease;
 }
 
 .danger-button:hover:not(:disabled) {
+  border-color: #f87171;
+  color: #7f1d1d;
   background: #fef2f2;
+  transform: translateY(-1px);
 }
 
-.danger-button:disabled {
-  cursor: wait;
-  opacity: 0.65;
+.api-tab-list {
+  display: flex;
+  gap: 0.35rem;
+  overflow-x: auto;
+  margin-top: 1.25rem;
+  border-bottom: 1px solid var(--slate-200);
+}
+
+.api-tab {
+  flex: 0 0 auto;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  padding: 0.8rem 1rem;
+  color: var(--slate-700);
+  background: transparent;
+  font-weight: 700;
+}
+
+.api-tab[aria-selected='true'] {
+  border-bottom-color: var(--blue-500);
+  color: var(--navy-900);
+}
+
+.api-tab-panel {
+  min-width: 0;
+  outline: none;
+}
+
+.api-feedback-stack {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0.75rem 0;
+}
+
+.api-toast {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.8rem;
+  border: 1px solid #fecaca;
+  border-radius: 12px;
+  padding: 0.65rem 0.85rem;
+  color: #991b1b;
+  background: #fff7f7;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+}
+
+.api-toast.success {
+  border-color: #a7f3d0;
+  color: #065f46;
+  background: #f0fdf7;
+}
+
+.api-toast p {
+  margin: 0;
+}
+
+.api-toast button {
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 6px;
+  padding: 0.15rem 0.4rem;
+  color: inherit;
+  background: transparent;
+  font-weight: 700;
+}
+
+.api-toast button:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.partial-success-notice {
+  margin: 0.75rem 0;
+  border: 1px solid #fcd34d;
+  border-left: 4px solid #d97706;
+  border-radius: 10px;
+  padding: 0.8rem 1rem;
+  color: #78350f;
+  background: #fffbeb;
 }
 
 .status-badge {
@@ -702,6 +858,11 @@ button {
   font-size: 0.82rem;
 }
 
+.one-time-secret button:focus-visible {
+  outline: 3px solid rgba(4, 120, 87, 0.4);
+  outline-offset: 2px;
+}
+
 .inline-management-form {
   display: grid;
   grid-template-columns: minmax(140px, 1fr) minmax(100px, 180px) auto;
@@ -731,25 +892,57 @@ button {
 
 .one-time-secret {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 0.6rem;
   margin: 0.8rem 0;
-  border: 1px solid #fcd34d;
+  border: 1px solid #a7f3d0;
   border-radius: 12px;
-  padding: 1rem;
-  color: #78350f;
-  background: #fffbeb;
+  padding: 0.85rem 1rem;
+  color: #065f46;
+  background: #f0fdf7;
+}
+
+.one-time-secret strong {
+  flex: 1 1 100%;
 }
 
 .one-time-secret code {
-  display: block;
-  width: 100%;
+  flex: 1 1 260px;
+  min-width: 0;
+  max-height: 120px;
+  overflow: auto;
   padding: 0.7rem;
   border-radius: 8px;
-  color: #422006;
+  color: #102a43;
   background: #fff;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   user-select: all;
+}
+
+.copy-key-button {
+  min-height: 40px;
+  border: 1px solid #047857;
+  border-radius: 10px;
+  padding: 0.55rem 0.8rem;
+  color: #047857;
+  background: #fff;
+  font-weight: 700;
+}
+
+.copy-key-button:hover:not(:disabled) {
+  background: #d1fae5;
+}
+
+.dismiss-key-button {
+  min-height: 40px;
+  border: 1px solid var(--slate-200);
+  border-radius: 10px;
+  padding: 0.55rem 0.8rem;
+  color: var(--navy-900);
+  background: white;
+  font-weight: 700;
 }
 
 .visually-hidden {
@@ -888,13 +1081,26 @@ button {
 @media (max-width: 920px) {
   .app-shell {
     flex-direction: column;
+    height: auto;
+    min-height: 100vh;
+    min-height: 100dvh;
+    overflow: visible;
   }
 
   .sidebar {
+    position: relative;
+    top: auto;
+    flex: 0 0 auto;
     width: 100%;
+    height: auto;
+    max-height: none;
+    overflow: visible;
   }
 
   .content-panel {
+    height: auto;
+    min-height: 0;
+    overflow: visible;
     padding: 1.5rem 1rem 2rem;
   }
 

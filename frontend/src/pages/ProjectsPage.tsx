@@ -12,6 +12,7 @@ export function ProjectsPage(): ReactElement {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [showCreateForm, setShowCreateForm] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
@@ -78,10 +79,33 @@ export function ProjectsPage(): ReactElement {
     <div className="page-container">
       <header className="page-header">
         <div><p className="eyebrow">Workspace</p><h1>Projects</h1></div>
-        {!loading && !error && <a className="primary-button inline-link" href="#create-project">Create project</a>}
+        <button
+          className={showCreateForm ? 'secondary-button' : 'primary-button'}
+          type="button"
+          onClick={() => setShowCreateForm((visible) => !visible)}
+          aria-expanded={showCreateForm}
+          aria-controls={showCreateForm ? 'create-project' : undefined}
+        >
+          {showCreateForm ? 'Cancel' : 'Create project'}
+        </button>
       </header>
 
-      {loading ? (
+      {showCreateForm ? (
+        <CreateProjectForm
+          name={name}
+          slug={slug}
+          description={description}
+          creating={creating}
+          error={formError}
+          setName={(value) => {
+            setName(value);
+            if (!slugEdited) setSlug(slugFromName(value));
+          }}
+          setSlug={(value) => { setSlug(value); setSlugEdited(true); }}
+          setDescription={setDescription}
+          onSubmit={createProject}
+        />
+      ) : loading ? (
         <div className="panel state-panel" role="status"><span className="loader" />Loading projects…</div>
       ) : error ? (
         <div className="panel state-panel" role="alert">
@@ -100,40 +124,12 @@ export function ProjectsPage(): ReactElement {
               </div>
             </article>
           ))}
-          <CreateProjectForm
-            name={name}
-            slug={slug}
-            description={description}
-            creating={creating}
-            error={formError}
-            setName={(value) => {
-              setName(value);
-              if (!slugEdited) setSlug(slugFromName(value));
-            }}
-            setSlug={(value) => { setSlug(value); setSlugEdited(true); }}
-            setDescription={setDescription}
-            onSubmit={createProject}
-          />
         </section>
       ) : (
         <div className="panel empty-panel">
           <div className="empty-mark" aria-hidden="true">P</div>
-          <h2>Create your first project</h2>
-          <p>Projects group independently configured APIs. Create one to begin registering your APIs.</p>
-          <CreateProjectForm
-            name={name}
-            slug={slug}
-            description={description}
-            creating={creating}
-            error={formError}
-            setName={(value) => {
-              setName(value);
-              if (!slugEdited) setSlug(slugFromName(value));
-            }}
-            setSlug={(value) => { setSlug(value); setSlugEdited(true); }}
-            setDescription={setDescription}
-            onSubmit={createProject}
-          />
+          <h2>No projects yet</h2>
+          <p>Projects group independently configured APIs. Use Create project to begin.</p>
         </div>
       )}
     </div>
@@ -154,7 +150,7 @@ interface CreateProjectFormProps {
 
 function CreateProjectForm(props: CreateProjectFormProps): ReactElement {
   return (
-    <form id="create-project" className="management-form project-create-form" onSubmit={props.onSubmit}>
+    <form id="create-project" className="panel management-form project-create-form" onSubmit={props.onSubmit}>
       <h2>Create project</h2>
       <label htmlFor="project-name">Name</label>
       <input id="project-name" value={props.name} maxLength={100} onChange={(event) => props.setName(event.target.value)} required />

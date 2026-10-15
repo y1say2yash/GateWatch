@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactElement } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactElement } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 
 import { ApiError, apiRequest } from '../lib/api';
@@ -15,6 +15,8 @@ import type {
 } from '../types/management';
 
 const routeMethods: RouteMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
+const apiTabs = ['Overview', 'Routes', 'Security', 'Configuration'] as const;
+type ApiTab = typeof apiTabs[number];
 
 interface DetailData {
   api: Api;
@@ -48,6 +50,8 @@ export function ApiDetailPage(): ReactElement {
   const [routeMethod, setRouteMethod] = useState<RouteMethod>('GET');
   const [keyName, setKeyName] = useState('');
   const [createdKey, setCreatedKey] = useState<{ apiId: string; value: string } | null>(null);
+  const [activeTab, setActiveTab] = useState<ApiTab>('Overview');
+  const [copyingKey, setCopyingKey] = useState(false);
   const [rateEnabled, setRateEnabled] = useState(true);
   const [maxRequests, setMaxRequests] = useState('');
   const [windowSeconds, setWindowSeconds] = useState('');
@@ -59,6 +63,12 @@ export function ApiDetailPage(): ReactElement {
   const [healthStatusMax, setHealthStatusMax] = useState('');
   const [healthLatency, setHealthLatency] = useState('');
   const loadSequence = useRef(0);
+
+  useEffect(() => {
+    if (!notice) return;
+    const timeout = window.setTimeout(() => setNotice(null), 5000);
+    return () => window.clearTimeout(timeout);
+  }, [notice]);
 
   const load = useCallback(async (): Promise<void> => {
     const requestId = ++loadSequence.current;
@@ -335,9 +345,37 @@ export function ApiDetailPage(): ReactElement {
     }
   };
 
+  const copyCreatedKey = async (key: string): Promise<void> => {
+    setCopyingKey(true);
+    try {
+      await navigator.clipboard.writeText(key);
+      setNotice('API key copied to the clipboard.');
+      setError(null);
+    } catch {
+      setError('Unable to copy the API key. Select and copy the displayed key manually.');
+    } finally {
+      setCopyingKey(false);
+    }
+  };
+
+  const handleTabKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
+    const currentIndex = apiTabs.indexOf(activeTab);
+    let nextIndex: number | null = null;
+    if (event.key === 'ArrowRight') nextIndex = (currentIndex + 1) % apiTabs.length;
+    if (event.key === 'ArrowLeft') nextIndex = (currentIndex - 1 + apiTabs.length) % apiTabs.length;
+    if (event.key === 'Home') nextIndex = 0;
+    if (event.key === 'End') nextIndex = apiTabs.length - 1;
+    if (nextIndex === null) return;
+    event.preventDefault();
+    const nextTab = apiTabs[nextIndex];
+    if (!nextTab) return;
+    setActiveTab(nextTab);
+    document.getElementById(`api-tab-${nextTab.toLowerCase()}`)?.focus();
+  };
+
   if (loading) return <div className="panel state-panel" role="status"><span className="loader" />Loading API details…</div>;
   if (error && !data) {
-    return <div className="page-container"><div className="panel state-panel" role="alert"><h1>API unavailable</h1><p>{error}</p>{createdKey?.apiId === apiId && <div className="one-time-secret"><strong>Copy the new API key now. It will not be shown again.</strong><code>{createdKey.value}</code></div>}{error.includes('not found') ? <Link className="text-link" to="/projects">Back to projects</Link> : <button className="secondary-button" onClick={() => void load()}>Retry</button>}</div></div>;
+    return <div className="page-container"><div className="panel state-panel" role="alert"><h1>API unavailable</h1><p>{error}</p>{createdKey?.apiId === apiId && <div className="one-time-secret"><strong>Copy the new API key now. It will not be shown again.</strong><code aria-label="New API key">{createdKey.value}</code><button className="copy-key-button" type="button" disabled={copyingKey} onClick={() => void copyCreatedKey(createdKey.value)}>{copyingKey ? 'Copying…' : 'Copy key'}</button><button className="dismiss-key-button" type="button" onClick={() => setCreatedKey(null)}>Dismiss</button></div>}{error.includes('not found') ? <Link className="text-link" to="/projects">Back to projects</Link> : <button className="secondary-button" onClick={() => void load()}>Retry</button>}</div></div>;
   }
   if (!data) return <div className="page-container"><div className="panel state-panel">API details are not available.</div></div>;
 
@@ -349,70 +387,120 @@ export function ApiDetailPage(): ReactElement {
           <span className={`status-badge lifecycle-${data.api.status.toLowerCase()}`}>{data.api.status}</span>
           <span className={`status-badge health-${data.healthStatus.healthStatus.toLowerCase()}`}>{data.healthStatus.healthStatus}</span>
           {data.api.status === 'ACTIVE'
-            ? <button className="secondary-button" disabled={saving} onClick={() => void changeLifecycle('disable')}>Disable API</button>
-            : <button className="secondary-button" disabled={saving} onClick={() => void changeLifecycle('enable')}>Enable API</button>}
+            ? <button className="warning-button" type="button" disabled={saving} onClick={() => void changeLifecycle('disable')}>Disable API</button>
+            : <button className="success-button" type="button" disabled={saving} onClick={() => void changeLifecycle('enable')}>Enable API</button>}
           <button className="danger-button" disabled={saving} onClick={() => void deleteApi()}>Delete API</button>
         </div>
       </header>
-      {warning && <p className="auth-error" role="alert">{warning}</p>}
-      {error && <p className="auth-error" role="alert">{error}</p>}
-      {notice && <p className="success-message" role="status">{notice}</p>}
+      {warning && <p className="partial-success-notice" role="alert">{warning}</p>}
+      {(error || notice) && (
+        <div className="api-feedback-stack" aria-live="polite">
+          {error && <div className="api-toast" role="alert"><p>{error}</p><button type="button" aria-label="Dismiss error" onClick={() => setError(null)}>Dismiss</button></div>}
+          {notice && <div className="api-toast success" role="status"><p>{notice}</p><button type="button" aria-label="Dismiss notification" onClick={() => setNotice(null)}>Dismiss</button></div>}
+        </div>
+      )}
 
-      <section className="panel management-section">
-        <header className="section-header"><div><p className="eyebrow">Configuration</p><h2>Upstream</h2></div></header>
-        <form className="management-form" onSubmit={(event) => void updateApi(event)}>
-          <label htmlFor="detail-api-name">API name</label><input id="detail-api-name" value={name} maxLength={100} onChange={(event) => setName(event.target.value)} required />
-          <label htmlFor="detail-api-description">Description</label><textarea id="detail-api-description" rows={2} value={description} onChange={(event) => setDescription(event.target.value)} />
-          <label htmlFor="detail-api-url">Base upstream URL</label><input id="detail-api-url" type="url" value={upstreamUrl} onChange={(event) => setUpstreamUrl(event.target.value)} required />
-          <label htmlFor="detail-api-base-path">Upstream base path</label><input id="detail-api-base-path" value={upstreamBasePath} onChange={(event) => setUpstreamBasePath(event.target.value)} />
-          <button className="primary-button" disabled={saving}>{saving ? 'Saving…' : 'Save upstream'}</button>
-        </form>
-        <dl className="detail-list"><div><dt>Project</dt><dd><Link className="text-link" to={`/projects/${data.project.id}`}>{data.project.name}</Link></dd></div><div><dt>Created</dt><dd><time dateTime={data.api.createdAt}>{new Date(data.api.createdAt).toLocaleString()}</time></dd></div><div><dt>Updated</dt><dd><time dateTime={data.api.updatedAt}>{new Date(data.api.updatedAt).toLocaleString()}</time></dd></div></dl>
-        <div className="checkbox-field"><input id="api-auth-required" type="checkbox" checked={data.api.authRequired} disabled={saving} onChange={(event) => void setAuthentication(event.target.checked)} /><label htmlFor="api-auth-required">Require GateWatch API key authentication</label></div>
-      </section>
-
-      <section className="panel management-section">
-        <header className="section-header"><div><p className="eyebrow">Gateway</p><h2>Routes</h2></div></header>
-        {data.routes.length ? <div className="table-scroll"><table className="api-table"><thead><tr><th>Prefix</th><th>Method</th><th>Status</th><th>Actions</th></tr></thead><tbody>{data.routes.map((route) => <tr key={route.id}><td>{route.pathPrefix}</td><td>{route.method}</td><td>{route.isActive ? 'Active' : 'Disabled'}</td><td><button className="text-button" disabled={saving} onClick={() => void changeRoute(route)}>{route.isActive ? 'Disable' : 'Enable'}</button><button className="text-button danger-text" disabled={saving} onClick={() => void removeRoute(route)}>Remove</button></td></tr>)}</tbody></table></div> : <p>No routes are configured for this API.</p>}
-        <form className="inline-management-form" onSubmit={(event) => void addRoute(event)}>
-          <label htmlFor="route-prefix">Add route prefix</label><input id="route-prefix" value={pathPrefix} onChange={(event) => setPathPrefix(event.target.value)} placeholder="/v1/resource" required />
-          <label htmlFor="route-method">Method</label><select id="route-method" value={routeMethod} onChange={(event) => setRouteMethod(event.target.value as RouteMethod)}>{routeMethods.map((method) => <option key={method}>{method}</option>)}</select>
-          <button className="secondary-button" disabled={saving}>Add route</button>
-        </form>
-      </section>
-
-      <div className="content-grid management-section">
-        <section className="panel">
-          <h2>Rate limit</h2>
-          <form className="management-form compact-form" onSubmit={(event) => void saveRateLimit(event)}>
-            <label className="checkbox-field"><input type="checkbox" checked={rateEnabled} onChange={(event) => setRateEnabled(event.target.checked)} />Enable fixed-window rate limit</label>
-            <label htmlFor="rate-limit-max">Maximum requests</label><input id="rate-limit-max" type="number" min="1" max="1000000" value={maxRequests} onChange={(event) => setMaxRequests(event.target.value)} required />
-            <label htmlFor="rate-limit-window">Window (seconds)</label><input id="rate-limit-window" type="number" min="1" max="86400" value={windowSeconds} onChange={(event) => setWindowSeconds(event.target.value)} required />
-            <button className="secondary-button" disabled={saving}>Save rate limit</button>
-          </form>
-        </section>
-
-        <section className="panel">
-          <h2>Health-check configuration</h2>
-          <form className="management-form compact-form" onSubmit={(event) => void saveHealth(event)}>
-            <label className="checkbox-field"><input type="checkbox" checked={healthEnabled} onChange={(event) => setHealthEnabled(event.target.checked)} />Enable health checks</label>
-            <label htmlFor="health-path">Path</label><input id="health-path" value={healthPath} onChange={(event) => setHealthPath(event.target.value)} required />
-            <label htmlFor="health-interval">Interval (seconds)</label><input id="health-interval" type="number" value={healthInterval} onChange={(event) => setHealthInterval(event.target.value)} required />
-            <label htmlFor="health-timeout">Timeout (milliseconds)</label><input id="health-timeout" type="number" value={healthTimeout} onChange={(event) => setHealthTimeout(event.target.value)} required />
-            <label htmlFor="health-status-min">Expected status minimum</label><input id="health-status-min" type="number" value={healthStatusMin} onChange={(event) => setHealthStatusMin(event.target.value)} required />
-            <label htmlFor="health-status-max">Expected status maximum</label><input id="health-status-max" type="number" value={healthStatusMax} onChange={(event) => setHealthStatusMax(event.target.value)} required />
-            <label htmlFor="health-latency">Latency threshold (milliseconds)</label><input id="health-latency" type="number" value={healthLatency} onChange={(event) => setHealthLatency(event.target.value)} required />
-            <button className="secondary-button" disabled={saving}>Save health config</button>
-          </form>
-        </section>
+      <div className="api-tab-list" role="tablist" aria-label="API management sections" onKeyDown={handleTabKeyDown}>
+        {apiTabs.map((tab) => (
+          <button
+            key={tab}
+            id={`api-tab-${tab.toLowerCase()}`}
+            className="api-tab"
+            type="button"
+            role="tab"
+            aria-selected={activeTab === tab}
+            aria-controls="api-tab-panel"
+            tabIndex={activeTab === tab ? 0 : -1}
+            onClick={() => setActiveTab(tab)}
+          >
+            {tab}
+          </button>
+        ))}
       </div>
 
-      <section className="panel management-section">
-        <header className="section-header"><div><p className="eyebrow">Credentials</p><h2>API keys</h2></div></header>
-        <p>Key secrets are shown only once. Copy a new key securely; it is not stored in browser storage.</p>
-        {createdKey?.apiId === apiId && <div className="one-time-secret" role="alert"><strong>Copy this key now. It will not be shown again.</strong><code>{createdKey.value}</code><button className="text-button" onClick={() => setCreatedKey(null)}>Dismiss</button></div>}
-        {data.keys.length ? <div className="table-scroll"><table className="api-table"><thead><tr><th>Name</th><th>Prefix</th><th>Created</th><th>Last used</th><th>Status</th><th>Action</th></tr></thead><tbody>{data.keys.map((key) => <tr key={key.id}><td>{key.name}</td><td><code>{key.keyPrefix}</code></td><td><time dateTime={key.createdAt}>{new Date(key.createdAt).toLocaleDateString()}</time></td><td>{key.lastUsedAt ? <time dateTime={key.lastUsedAt}>{new Date(key.lastUsedAt).toLocaleString()}</time> : 'Never'}</td><td>{key.revokedAt ? 'Revoked' : 'Active'}</td><td>{!key.revokedAt && <button className="text-button danger-text" disabled={saving} onClick={() => void revokeKey(key)}>Revoke</button>}</td></tr>)}</tbody></table></div> : <p>No API keys have been created for this API.</p>}
-        <form className="inline-management-form" onSubmit={(event) => void createKey(event)}><label htmlFor="api-key-name">New key name</label><input id="api-key-name" value={keyName} maxLength={100} onChange={(event) => setKeyName(event.target.value)} required /><button className="secondary-button" disabled={saving}>{saving ? 'Creating…' : 'Create API key'}</button></form>
+      <section id="api-tab-panel" className="api-tab-panel" role="tabpanel" aria-labelledby={`api-tab-${activeTab.toLowerCase()}`} tabIndex={0}>
+        {activeTab === 'Overview' && (
+          <>
+            <section className="panel management-section">
+              <header className="section-header"><div><p className="eyebrow">Overview</p><h2>Upstream</h2></div></header>
+              <form className="management-form" onSubmit={(event) => void updateApi(event)}>
+                <label htmlFor="detail-api-name">API name</label><input id="detail-api-name" value={name} maxLength={100} onChange={(event) => setName(event.target.value)} required />
+                <label htmlFor="detail-api-description">Description</label><textarea id="detail-api-description" rows={2} value={description} onChange={(event) => setDescription(event.target.value)} />
+                <label htmlFor="detail-api-url">Base upstream URL</label><input id="detail-api-url" type="url" value={upstreamUrl} onChange={(event) => setUpstreamUrl(event.target.value)} required />
+                <label htmlFor="detail-api-base-path">Upstream base path</label><input id="detail-api-base-path" value={upstreamBasePath} onChange={(event) => setUpstreamBasePath(event.target.value)} />
+                <button className="primary-button" disabled={saving}>{saving ? 'Saving…' : 'Save upstream'}</button>
+              </form>
+              <dl className="detail-list">
+                <div><dt>Project</dt><dd><Link className="text-link" to={`/projects/${data.project.id}`}>{data.project.name}</Link></dd></div>
+                <div><dt>Created</dt><dd><time dateTime={data.api.createdAt}>{new Date(data.api.createdAt).toLocaleString()}</time></dd></div>
+                <div><dt>Updated</dt><dd><time dateTime={data.api.updatedAt}>{new Date(data.api.updatedAt).toLocaleString()}</time></dd></div>
+                <div><dt>API keys</dt><dd>{data.keys.filter((key) => !key.revokedAt).length} active of {data.keys.length}</dd></div>
+              </dl>
+            </section>
+          </>
+        )}
+
+        {activeTab === 'Routes' && (
+          <section className="panel management-section">
+            <header className="section-header"><div><p className="eyebrow">Gateway</p><h2>Routes</h2></div></header>
+            {data.routes.length ? <div className="table-scroll"><table className="api-table"><thead><tr><th>Prefix</th><th>Method</th><th>Status</th><th>Actions</th></tr></thead><tbody>{data.routes.map((route) => <tr key={route.id}><td>{route.pathPrefix}</td><td>{route.method}</td><td>{route.isActive ? 'Active' : 'Disabled'}</td><td><button className="text-button" type="button" disabled={saving} onClick={() => void changeRoute(route)}>{route.isActive ? 'Disable' : 'Enable'}</button><button className="text-button danger-text" type="button" disabled={saving} onClick={() => void removeRoute(route)}>Remove</button></td></tr>)}</tbody></table></div> : <p>No routes are configured for this API.</p>}
+            <form className="inline-management-form" onSubmit={(event) => void addRoute(event)}>
+              <label htmlFor="route-prefix">Add route prefix</label><input id="route-prefix" value={pathPrefix} onChange={(event) => setPathPrefix(event.target.value)} placeholder="/v1/resource" required />
+              <label htmlFor="route-method">Method</label><select id="route-method" value={routeMethod} onChange={(event) => setRouteMethod(event.target.value as RouteMethod)}>{routeMethods.map((method) => <option key={method}>{method}</option>)}</select>
+              <button className="secondary-button" disabled={saving}>Add route</button>
+            </form>
+          </section>
+        )}
+
+        {activeTab === 'Security' && (
+          <>
+            <section className="panel management-section">
+              <header className="section-header"><div><p className="eyebrow">Access control</p><h2>Authentication</h2></div></header>
+              <div className="checkbox-field"><input id="api-auth-required" type="checkbox" checked={data.api.authRequired} disabled={saving} onChange={(event) => void setAuthentication(event.target.checked)} /><label htmlFor="api-auth-required">Require GateWatch API key authentication</label></div>
+            </section>
+            <section className="panel management-section">
+              <header className="section-header"><div><p className="eyebrow">Credentials</p><h2>API keys</h2></div></header>
+              <p>Key secrets are shown once at creation and are not stored in browser storage.</p>
+              {createdKey?.apiId === apiId && (
+                <div className="one-time-secret" role="alert">
+                  <strong>One-time API key. Copy it now; the complete key will not be shown again.</strong>
+                  <code aria-label="New API key">{createdKey.value}</code>
+                  <button className="copy-key-button" type="button" disabled={copyingKey} onClick={() => void copyCreatedKey(createdKey.value)}>{copyingKey ? 'Copying…' : 'Copy key'}</button>
+                  <button className="dismiss-key-button" type="button" onClick={() => setCreatedKey(null)}>Dismiss</button>
+                </div>
+              )}
+              {data.keys.length ? <div className="table-scroll"><table className="api-table"><thead><tr><th>Name</th><th>Prefix</th><th>Created</th><th>Last used</th><th>Status</th><th>Action</th></tr></thead><tbody>{data.keys.map((key) => <tr key={key.id}><td>{key.name}</td><td><code>{key.keyPrefix}</code></td><td><time dateTime={key.createdAt}>{new Date(key.createdAt).toLocaleDateString()}</time></td><td>{key.lastUsedAt ? <time dateTime={key.lastUsedAt}>{new Date(key.lastUsedAt).toLocaleString()}</time> : 'Never'}</td><td>{key.revokedAt ? 'Revoked' : 'Active'}</td><td>{!key.revokedAt && <button className="text-button danger-text" type="button" disabled={saving} onClick={() => void revokeKey(key)}>Revoke</button>}</td></tr>)}</tbody></table></div> : <p>No API keys have been created for this API.</p>}
+              <form className="inline-management-form" onSubmit={(event) => void createKey(event)}><label htmlFor="api-key-name">New key name</label><input id="api-key-name" value={keyName} maxLength={100} onChange={(event) => setKeyName(event.target.value)} required /><button className="primary-button" disabled={saving}>{saving ? 'Creating…' : 'Create API key'}</button></form>
+            </section>
+          </>
+        )}
+
+        {activeTab === 'Configuration' && (
+          <div className="content-grid management-section">
+            <section className="panel">
+              <h2>Rate limit</h2>
+              <form className="management-form compact-form" onSubmit={(event) => void saveRateLimit(event)}>
+                <label className="checkbox-field"><input type="checkbox" checked={rateEnabled} onChange={(event) => setRateEnabled(event.target.checked)} />Enable fixed-window rate limit</label>
+                <label htmlFor="rate-limit-max">Maximum requests</label><input id="rate-limit-max" type="number" min="1" max="1000000" value={maxRequests} onChange={(event) => setMaxRequests(event.target.value)} required />
+                <label htmlFor="rate-limit-window">Window (seconds)</label><input id="rate-limit-window" type="number" min="1" max="86400" value={windowSeconds} onChange={(event) => setWindowSeconds(event.target.value)} required />
+                <button className="secondary-button" disabled={saving}>{saving ? 'Saving…' : 'Save rate limit'}</button>
+              </form>
+            </section>
+            <section className="panel">
+              <h2>Health-check configuration</h2>
+              <form className="management-form compact-form" onSubmit={(event) => void saveHealth(event)}>
+                <label className="checkbox-field"><input type="checkbox" checked={healthEnabled} onChange={(event) => setHealthEnabled(event.target.checked)} />Enable health checks</label>
+                <label htmlFor="health-path">Path</label><input id="health-path" value={healthPath} onChange={(event) => setHealthPath(event.target.value)} required />
+                <label htmlFor="health-interval">Interval (seconds)</label><input id="health-interval" type="number" value={healthInterval} onChange={(event) => setHealthInterval(event.target.value)} required />
+                <label htmlFor="health-timeout">Timeout (milliseconds)</label><input id="health-timeout" type="number" value={healthTimeout} onChange={(event) => setHealthTimeout(event.target.value)} required />
+                <label htmlFor="health-status-min">Expected status minimum</label><input id="health-status-min" type="number" value={healthStatusMin} onChange={(event) => setHealthStatusMin(event.target.value)} required />
+                <label htmlFor="health-status-max">Expected status maximum</label><input id="health-status-max" type="number" value={healthStatusMax} onChange={(event) => setHealthStatusMax(event.target.value)} required />
+                <label htmlFor="health-latency">Latency threshold (milliseconds)</label><input id="health-latency" type="number" value={healthLatency} onChange={(event) => setHealthLatency(event.target.value)} required />
+                <button className="secondary-button" disabled={saving}>{saving ? 'Saving…' : 'Save health config'}</button>
+              </form>
+            </section>
+          </div>
+        )}
       </section>
     </div>
   );
