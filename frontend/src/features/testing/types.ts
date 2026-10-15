@@ -56,3 +56,17 @@ export interface TestExecutionResult {
     errorMessage?: string;
   };
 }
+
+export interface TestExecutionHistoryItem {
+  id: string;
+  testId: string;
+  testName: string;
+  status: 'PASSED' | 'FAILED' | 'ERROR';
+  triggerType: 'MANUAL' | 'CI_CD';
+  responseStatus: number | null;
+  responseTimeMs: number | null;
+  durationMs: number | null;
+  startedAt: string;
+  completedAt: string | null;
+  assertions: Array<{ type: TestAssertion['type']; pass: boolean }>;
+}

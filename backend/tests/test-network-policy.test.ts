@@ -32,6 +32,7 @@ test('classifies special-use IPv4 and IPv6 destinations as non-public', () => {
         '2002:0808:0808::1',
         '3fff::1',
         '64:ff9b::a9fe:a9fe',
+        '64:ff9b:1::a9fe:a9fe',
     ]) {
         assert.equal(isNonPublicAddress(address), true, `${address} must be non-public`);
     }
@@ -69,6 +70,46 @@ test('requires an exact local-origin allowlist outside production', () => {
             isDevelopmentLocalOriginAllowed(new URL('http://127.0.0.1:40000/path')),
             false,
         );
+    } finally {
+        if (priorMode === undefined) delete process.env.NODE_ENV;
+        else process.env.NODE_ENV = priorMode;
+        if (priorOrigins === undefined) delete process.env.TEST_LOCAL_ALLOWED_ORIGINS;
+        else process.env.TEST_LOCAL_ALLOWED_ORIGINS = priorOrigins;
+    }
+});
+
+test('does not allow missing, empty, malformed, or non-development local origin entries', () => {
+    const priorMode = process.env.NODE_ENV;
+    const priorOrigins = process.env.TEST_LOCAL_ALLOWED_ORIGINS;
+    const target = new URL('http://127.0.0.1:40000/path');
+    try {
+        process.env.NODE_ENV = 'development';
+        for (const value of [
+            undefined,
+            '',
+            ' , ',
+            'http://127.0.0.1:40000/path',
+            'http://user@127.0.0.1:40000',
+            'http://127.0.0.1:40000?query=1',
+            'http://127.0.0.1:40000#fragment',
+            '*',
+        ]) {
+            if (value === undefined) delete process.env.TEST_LOCAL_ALLOWED_ORIGINS;
+            else process.env.TEST_LOCAL_ALLOWED_ORIGINS = value;
+            assert.equal(isDevelopmentLocalOriginAllowed(target), false, String(value));
+        }
+
+        process.env.TEST_LOCAL_ALLOWED_ORIGINS =
+            ' http://127.0.0.1:40000 , ,not-an-origin ';
+        assert.equal(isDevelopmentLocalOriginAllowed(target), true);
+
+        process.env.NODE_ENV = 'production';
+        process.env.TEST_LOCAL_ALLOWED_ORIGINS = 'http://127.0.0.1:40000';
+        assert.equal(isDevelopmentLocalOriginAllowed(target), false);
+        process.env.NODE_ENV = 'test';
+        assert.equal(isDevelopmentLocalOriginAllowed(target), true);
+        process.env.NODE_ENV = 'staging';
+        assert.equal(isDevelopmentLocalOriginAllowed(target), false);
     } finally {
         if (priorMode === undefined) delete process.env.NODE_ENV;
         else process.env.NODE_ENV = priorMode;

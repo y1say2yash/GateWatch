@@ -5,10 +5,11 @@ import { useOwnedApis } from '../features/apis/useOwnedApis';
 import type {
   ApiTestDefinition,
   TestAuthenticationType,
+  TestExecutionHistoryItem,
   TestExecutionResult,
   TestMethod,
 } from '../features/testing/types';
-import { ApiError, apiRequest } from '../lib/api';
+import { ApiError, apiRequest, apiRequestEnvelope } from '../lib/api';
 
 const testMethods: TestMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
 const authenticationTypes: TestAuthenticationType[] = ['NONE', 'BASIC', 'BEARER', 'API_KEY'];
@@ -30,6 +31,13 @@ interface TestDraft {
 interface TestCollection {
   apiId: string;
   tests: ApiTestDefinition[];
+}
+
+interface ExecutionHistoryState {
+  items: TestExecutionHistoryItem[];
+  page: number;
+  total: number;
+  totalPages: number;
 }
 
 function safeDisplayUrl(value: string): string {
@@ -134,9 +142,15 @@ export function TestingPage(): ReactElement {
   const [executingTestId, setExecutingTestId] = useState<string | null>(null);
   const [executionResults, setExecutionResults] = useState<Record<string, TestExecutionResult>>({});
   const [executionErrors, setExecutionErrors] = useState<Record<string, string>>({});
+  const [historyTestId, setHistoryTestId] = useState<string | null>(null);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [executionHistory, setExecutionHistory] = useState<ExecutionHistoryState | null>(null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const submitInProgress = useRef(false);
   const executionInProgress = useRef(false);
   const requestSequence = useRef(0);
+  const historyRequestSequence = useRef(0);
 
   useEffect(() => {
     let active = true;
@@ -314,6 +328,33 @@ export function TestingPage(): ReactElement {
     }
   };
 
+  const loadExecutionHistory = async (testId: string, page: number): Promise<void> => {
+    const requestId = ++historyRequestSequence.current;
+    setHistoryTestId(testId);
+    setHistoryPage(page);
+    setHistoryLoading(true);
+    setHistoryError(null);
+    try {
+      const response = await apiRequestEnvelope<TestExecutionHistoryItem[]>(
+        `/api/v1/tests/${testId}/executions?page=${page}&limit=10`,
+      );
+      if (requestId !== historyRequestSequence.current) return;
+      setExecutionHistory({
+        items: response.data,
+        page: response.pagination?.page ?? page,
+        total: response.pagination?.total ?? response.data.length,
+        totalPages: response.pagination?.totalPages ?? 1,
+      });
+    } catch (error) {
+      if (requestId !== historyRequestSequence.current) return;
+      setHistoryError(error instanceof ApiError
+        ? error.message
+        : 'Unable to load execution history. Please try again.');
+    } finally {
+      if (requestId === historyRequestSequence.current) setHistoryLoading(false);
+    }
+  };
+
   const tests = collection?.apiId === selectedApiId ? collection.tests : [];
   const waitingForTests = Boolean(selectedApiId && (loadingTests || collection?.apiId !== selectedApiId));
 
@@ -381,12 +422,34 @@ export function TestingPage(): ReactElement {
                 <button className="danger-button" type="button" disabled={deletingTestId !== null || executingTestId !== null} onClick={() => void deleteTest(test)}>
                   {deletingTestId === test.id ? 'Deleting…' : 'Delete'}
                 </button>
+                <button className="secondary-button" type="button" onClick={() => {
+                  if (historyTestId === test.id) {
+                    historyRequestSequence.current += 1;
+                    setHistoryTestId(null);
+                    setExecutionHistory(null);
+                    setHistoryError(null);
+                    setHistoryLoading(false);
+                  } else {
+                    void loadExecutionHistory(test.id, 1);
+                  }
+                }}>
+                  {historyTestId === test.id ? 'Hide history' : 'Execution history'}
+                </button>
               </div>
               {executionErrors[test.id] && <p className="auth-error" role="alert">{executionErrors[test.id]}</p>}
               {executionResults[test.id] && <ExecutionResult result={executionResults[test.id]} />}
+              {historyTestId === test.id && (
+                <ExecutionHistory
+                  history={executionHistory}
+                  loading={historyLoading}
+                  error={historyError}
+                  onRetry={() => void loadExecutionHistory(test.id, historyPage)}
+                  onPageChange={(page) => void loadExecutionHistory(test.id, page)}
+                />
+              )}
             </article>
           ))}
-          <p className="test-history-note">The backend has no execution-history read endpoint yet. Each manual run is shown here for this visit only; no response body is displayed. Runs are not idempotent: if a connection fails, GateWatch may still have completed the run, and retrying starts another execution.</p>
+          <p className="test-history-note">Execution history contains safe summaries only; upstream response bodies and assertion values are never displayed. Retrying history loading does not execute the test again.</p>
         </section>
       ) : null}
     </div>
@@ -468,6 +531,73 @@ function TestDefinitionForm(props: TestDefinitionFormProps): ReactElement {
         <button className="secondary-button" type="button" disabled={props.saving} onClick={props.onCancel}>Cancel</button>
       </div>
     </form>
+  );
+}
+
+interface ExecutionHistoryProps {
+  history: ExecutionHistoryState | null;
+  loading: boolean;
+  error: string | null;
+  onRetry: () => void;
+  onPageChange: (page: number) => void;
+}
+
+function ExecutionHistory(props: ExecutionHistoryProps): ReactElement {
+  if (props.loading) {
+    return <div className="panel state-panel" role="status">Loading execution history…</div>;
+  }
+  if (props.error) {
+    return (
+      <div className="panel state-panel" role="alert">
+        <p>{props.error}</p>
+        <button className="secondary-button" type="button" onClick={props.onRetry}>Retry history</button>
+      </div>
+    );
+  }
+  if (!props.history || props.history.items.length === 0) {
+    return <div className="panel empty-panel"><p>No executions have been recorded for this test.</p></div>;
+  }
+  return (
+    <section className="panel" aria-label="Execution history">
+      <h3>Execution history</h3>
+      <ul className="execution-history-list">
+        {props.history.items.map((execution) => (
+          <li key={execution.id}>
+            <strong>{execution.status}</strong>
+            <span>{new Date(execution.startedAt).toLocaleString()} · {execution.triggerType}</span>
+            <span>
+              HTTP {execution.responseStatus ?? '—'} · {execution.responseTimeMs ?? '—'} ms response · {execution.durationMs ?? '—'} ms total
+            </span>
+            <ul aria-label={`${execution.assertions.length} assertion summaries`}>
+              {execution.assertions.map((assertion, index) => (
+                <li key={`${execution.id}-${index}`}>
+                  {assertion.type.replaceAll('_', ' ')}: {assertion.pass ? 'passed' : 'failed'}
+                </li>
+              ))}
+            </ul>
+          </li>
+        ))}
+      </ul>
+      <div className="test-card-actions">
+        <button
+          className="secondary-button"
+          type="button"
+          disabled={props.history.page <= 1}
+          onClick={() => props.onPageChange(props.history!.page - 1)}
+        >
+          Newer
+        </button>
+        <span>Page {props.history.page} of {props.history.totalPages} · {props.history.total} runs</span>
+        <button
+          className="secondary-button"
+          type="button"
+          disabled={props.history.page >= props.history.totalPages}
+          onClick={() => props.onPageChange(props.history!.page + 1)}
+        >
+          Older
+        </button>
+      </div>
+    </section>
   );
 }
 

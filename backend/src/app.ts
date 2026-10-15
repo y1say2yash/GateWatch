@@ -19,6 +19,15 @@ const app = express();
 
 app.set('trust proxy', 1);
 
+app.use((_request, response, next) => {
+    response.setHeader('X-Content-Type-Options', 'nosniff');
+    response.setHeader('X-Frame-Options', 'DENY');
+    response.setHeader('Referrer-Policy', 'no-referrer');
+    response.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    response.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+    next();
+});
+
 app.use(cookieParser());
 
 app.use(gatewayRoutes);

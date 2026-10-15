@@ -3,6 +3,7 @@ import type { Knex } from 'knex';
 import database from '../config/database.js';
 import type {
     ApiTest,
+    TestExecutionHistoryItem,
     TestAssertion,
     TestInput,
 } from './test-types.js';
@@ -28,6 +29,20 @@ interface TestRow {
     created_at: Date;
     updated_at: Date;
     upstream_url?: string;
+}
+
+interface ExecutionHistoryRow {
+    id: string;
+    test_id: string;
+    test_name: string;
+    status: TestExecutionHistoryItem['status'];
+    trigger_type: TestExecutionHistoryItem['triggerType'];
+    response_status: number | null;
+    response_time_ms: number | null;
+    duration_ms: number | null;
+    started_at: Date;
+    completed_at: Date | null;
+    assertions: unknown;
 }
 
 function serializeJsonb(value: unknown): Knex.Raw {
@@ -339,4 +354,101 @@ export async function findStoredAuthentication(
         .select('authentication')
         .first();
     return row?.authentication ?? null;
+}
+
+function mapExecutionHistoryRow(row: ExecutionHistoryRow): TestExecutionHistoryItem {
+    const assertions = decodeJsonb(row.assertions);
+    const safeAssertions = Array.isArray(assertions)
+        ? assertions.flatMap((assertion) => {
+            if (!isRecord(assertion) ||
+                !['STATUS_CODE', 'JSON_BODY', 'RESPONSE_HEADER', 'RESPONSE_TIME'].includes(
+                    String(assertion.type),
+                ) ||
+                typeof assertion.pass !== 'boolean') {
+                return [];
+            }
+            return [{
+                type: assertion.type as TestAssertion['type'],
+                pass: assertion.pass,
+            }];
+        })
+        : [];
+
+    return {
+        id: row.id,
+        testId: row.test_id,
+        testName: row.test_name,
+        status: row.status,
+        triggerType: row.trigger_type,
+        responseStatus: row.response_status,
+        responseTimeMs: row.response_time_ms,
+        durationMs: row.duration_ms,
+        startedAt: row.started_at.toISOString(),
+        completedAt: row.completed_at === null
+            ? null
+            : row.completed_at.toISOString(),
+        assertions: safeAssertions,
+    };
+}
+
+export async function listOwnedTestExecutionHistory(
+    userId: string,
+    testId: string,
+    page: number,
+    pageSize: number,
+): Promise<{ data: TestExecutionHistoryItem[]; total: number } | null> {
+    const ownedTest = database('tests')
+        .join('apis', 'apis.id', 'tests.api_id')
+        .join('projects', 'projects.id', 'apis.project_id')
+        .where({
+            'tests.id': testId,
+            'projects.user_id': userId,
+        })
+        .whereNull('tests.deleted_at')
+        .whereNull('apis.deleted_at')
+        .whereNull('projects.deleted_at')
+        .whereNot('apis.status', 'DELETED')
+        .select('tests.id');
+    if (!await ownedTest.clone().first()) {
+        return null;
+    }
+    const ownedExecutions = database('test_executions')
+        .join('tests', 'tests.id', 'test_executions.test_id')
+        .join('apis', 'apis.id', 'tests.api_id')
+        .join('projects', 'projects.id', 'apis.project_id')
+        .where({
+            'tests.id': testId,
+            'projects.user_id': userId,
+        })
+        .whereNull('tests.deleted_at')
+        .whereNull('apis.deleted_at')
+        .whereNull('projects.deleted_at')
+        .whereNot('apis.status', 'DELETED');
+
+    const countRow = await ownedExecutions.clone().count({ count: 'test_executions.id' }).first();
+
+    const rows = await ownedExecutions
+        .clone()
+        .select(
+            'test_executions.id',
+            'test_executions.test_id',
+            'tests.name as test_name',
+            'test_executions.status',
+            'test_executions.trigger_type',
+            'test_executions.response_status',
+            'test_executions.response_time_ms',
+            'test_executions.duration_ms',
+            'test_executions.started_at',
+            'test_executions.completed_at',
+            'test_executions.assertions',
+        )
+        .orderBy('test_executions.started_at', 'desc')
+        .orderBy('test_executions.id', 'desc')
+        .limit(pageSize)
+        .offset((page - 1) * pageSize) as ExecutionHistoryRow[];
+
+    return {
+        data: rows.map(mapExecutionHistoryRow),
+        total: Number(countRow?.count ?? 0),
+    };
 }

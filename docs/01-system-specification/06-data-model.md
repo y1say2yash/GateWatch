@@ -583,14 +583,18 @@ No separate `test_assertions` table is used for the MVP.
 | `started_at` | TIMESTAMPTZ | NOT NULL |
 | `completed_at` | TIMESTAMPTZ | NULL |
 | `created_at` | TIMESTAMPTZ | NOT NULL |
+| `trigger_type` | TEST_TRIGGER_TYPE | NOT NULL, default `MANUAL` |
+| `duration_ms` | INTEGER | NULL |
+| `result` | JSONB | NULL; safe summaries only |
 
 The base migration created nullable `response_body` and `response_headers`
 columns. Migration 08 checks that both columns contain no non-null values and
 aborts before changing schema if any are present. When empty, it drops these
 columns so complete responses cannot be persisted. No execution rows are
-deleted. The existing execution table does not yet contain the documented
-`trigger_type`, `duration_ms`, or consolidated `result` fields; those belong
-to M24's forward migration and are not part of M23.
+deleted. Migration 09 adds `trigger_type`, `duration_ms`, and the nullable
+`result` column. The execution-history API selects only safe metadata and
+assertion type/pass-fail fields; it never exposes `result`, detailed errors,
+expected/actual assertion values, or complete upstream responses.
 
 ### 5.12 `request_history`
 

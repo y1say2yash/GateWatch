@@ -79,6 +79,28 @@ export interface TestExecutionResult {
     errorMessage?: string | null;
 }
 
+export interface TestExecutionHistoryItem {
+    id: string;
+    testId: string;
+    testName: string;
+    status: 'PASSED' | 'FAILED' | 'ERROR';
+    triggerType: 'MANUAL' | 'CI_CD';
+    responseStatus: number | null;
+    responseTimeMs: number | null;
+    durationMs: number | null;
+    startedAt: string;
+    completedAt: string | null;
+    assertions: Array<{ type: TestAssertion['type']; pass: boolean }>;
+}
+
+export interface TestExecutionHistoryPage {
+    data: TestExecutionHistoryItem[];
+    page: number;
+    pageSize: number;
+    total: number;
+    hasNextPage: boolean;
+}
+
 export interface TestInput {
     name: string;
     method: TestMethod;

@@ -282,6 +282,46 @@ Notifications
 
 Actual secret values must never be placed in `.env.example`.
 
+`TEST_CREDENTIAL_ENCRYPTION_KEY` is exactly 64 hexadecimal characters,
+representing 32 random bytes for AES-256-GCM. In development and test
+environments, it is needed when storing or executing a test definition with
+Basic, Bearer, or API-key authentication; definitions without credentials do
+not require it. If it is absent or malformed, credential encryption/decryption
+fails closed and the credential feature returns a safe service-unavailable
+error; a well-formed but mismatched key cannot decrypt existing credentials.
+Credentials are never stored as plaintext. Production startup requires a
+valid key as part of the supported test-credential feature.
+
+Generate a local key without putting it in source control:
+
+```bash
+node -e "process.stdout.write(require('node:crypto').randomBytes(32).toString('hex') + '\n')"
+```
+
+Copy the generated value into your ignored local `.env` as
+`TEST_CREDENTIAL_ENCRYPTION_KEY=...`; do not paste it into chat or commit it.
+The Docker Compose backend reads `.env` via its `env_file` entry.
+Stored ciphertext can only be decrypted with the key used to encrypt it;
+changing the key without first re-encrypting existing test credentials makes
+those credentials unusable. The application does not perform automatic key
+rotation or ciphertext re-encryption.
+
+`TEST_LOCAL_ALLOWED_ORIGINS` is an optional comma-separated list of exact
+HTTP(S) origins (scheme, host, and optional port only; no path, credentials,
+query, or fragment). It is honored only when `NODE_ENV` is `development` or
+`test`, and only for local/private target hostnames. Missing, empty, or
+malformed entries do not grant access. Production always rejects local,
+private, link-local, loopback, and metadata targets regardless of this
+variable. Allowlisting does not bypass DNS checks: all resolved addresses
+must satisfy the local policy, mixed public/private answers are rejected, the
+selected address is pinned for the request, and test-runner redirects are
+disabled. The example lists the Docker demo API origins for local
+development; remove entries you do not need.
+
+Production startup fails unless `POSTGRES_PASSWORD`, `GITHUB_CLIENT_ID`,
+`GITHUB_CLIENT_SECRET`, and a valid `TEST_CREDENTIAL_ENCRYPTION_KEY` are
+provided. Never use development defaults or commit these values.
+
 ---
 
 # 7. Dependency Installation
@@ -304,11 +344,32 @@ The corresponding `package-lock.json` files must be committed to Git.
 
 Dependencies should be added using npm rather than manually editing package manifests whenever possible.
 
+### Validation Commands
+
+From `backend/`, run `npm test`, `npm run lint`, and `npm run build`.
+From `frontend/`, run `npm test`, `npm run lint`, and `npm run build`.
+The backend migration status command is `npm run db:status`; it requires a
+reachable PostgreSQL instance. Existing migrations are immutable: schema
+changes must use a new forward migration.
+
 ---
 
 # 8. Running the Project
 
 Docker Compose is the standard way to run GateWatch locally.
+
+Create the local environment file from the committed template before starting
+Compose, and set a non-empty `POSTGRES_PASSWORD` for the local PostgreSQL
+container:
+
+```bash
+cp .env.example .env
+```
+
+GitHub OAuth values may remain empty unless OAuth login is being configured.
+`TEST_CREDENTIAL_ENCRYPTION_KEY` may remain empty for tests without stored
+credentials; generate and configure a valid key using the instructions above
+before storing or executing credentialed tests.
 
 Build and start the complete development environment:
 
@@ -1650,13 +1711,14 @@ persist request or response bodies.
 
 ### API test definition credentials
 
-M23 requires `TEST_CREDENTIAL_ENCRYPTION_KEY` when storing Basic, Bearer, or
-custom API-key credentials in a test definition. Configure a 32-byte key as
-64 hexadecimal characters in the local environment; never commit the value.
-Production deployments must provision and rotate this key through their
-secret-management process. `TEST_LOCAL_ALLOWED_ORIGINS` is an optional
-comma-separated origin allowlist accepted only outside production for local
-demo APIs.
+M23 requires `TEST_CREDENTIAL_ENCRYPTION_KEY` when storing or executing Basic,
+Bearer, or custom API-key credentials in a test definition. Configure a
+32-byte key as 64 hexadecimal characters in the local environment; never
+commit the value. Production deployments must provision and rotate this key
+through their secret-management process. `TEST_LOCAL_ALLOWED_ORIGINS` is an
+optional exact-origin allowlist for local demo APIs in development and test
+only; it does not permit private or local upstreams in production or bypass
+DNS validation, address pinning, or redirect protections.
 
 Migration `08_add_api_test_definition_fields.ts` adds definition fields and
 removes legacy execution response-body/header columns only when both columns
