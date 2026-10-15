@@ -18,6 +18,7 @@ services:
       - /app/node_modules
     environment:
       NODE_ENV: development
+      API_PROXY_TARGET: http://backend:${BACKEND_PORT:-4000}
     expose:
       - "5173"
     command: npm run dev -- --host 0.0.0.0
