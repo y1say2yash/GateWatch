@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactElement } from 'react';
 import { Link } from 'react-router-dom';
 
+import { MonitoringChart } from '../components/MonitoringCharts';
 import { ApiError, apiRequest, apiRequestEnvelope } from '../lib/api';
 import type { Api, ApiRoute, HealthStatus, Project } from '../types/management';
 import type {
@@ -10,11 +11,13 @@ import type {
   ApiHealthStatus,
   GatewayRoute,
   MonitoringSummary,
+  MonitoringTimeSeries,
   RequestHistoryRecord,
 } from '../types/monitoring';
 
 const monitoringTabs = ['Gateway', 'Requests', 'API health', 'Health history', 'Metrics', 'Operations'] as const;
 type MonitoringTab = typeof monitoringTabs[number];
+const maximumMetricRangeMs = 90 * 24 * 60 * 60 * 1_000;
 
 interface ApiInventoryEntry {
   api: Api;
@@ -146,6 +149,7 @@ export function MonitoringPage(): ReactElement {
   const [loadingSummary, setLoadingSummary] = useState(false);
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [summaryReload, setSummaryReload] = useState(0);
+  const [timeSeries, setTimeSeries] = useState<MonitoringTimeSeries | null>(null);
   const inventorySequence = useRef(0);
   const selectedApi = inventory?.apis.find(({ api }) => api.id === selectedApiId)?.api
     ?? inventory?.apis[0]?.api;
@@ -280,19 +284,29 @@ export function MonitoringPage(): ReactElement {
       const to = toIsoTimestamp(metricRange.to);
       if (!from || !to || from > to) {
         setSummary(null);
+        setTimeSeries(null);
         setSummaryError('Choose a valid time range where the start is not later than the end.');
         setLoadingSummary(false);
         return;
       }
       const params = new URLSearchParams({ from, to });
       try {
-        const result = await apiRequest<MonitoringSummary>(
-          `/api/v1/apis/${effectiveApiId}/monitoring/summary?${params.toString()}`,
-        );
-        if (active) setSummary(result);
+        const [result, series] = await Promise.all([
+          apiRequest<MonitoringSummary>(
+            `/api/v1/apis/${effectiveApiId}/monitoring/summary?${params.toString()}`,
+          ),
+          apiRequest<MonitoringTimeSeries>(
+            `/api/v1/apis/${effectiveApiId}/monitoring/timeseries?${params.toString()}`,
+          ),
+        ]);
+        if (active) {
+          setSummary(result);
+          setTimeSeries(series);
+        }
       } catch (error) {
         if (active) {
           setSummary(null);
+          setTimeSeries(null);
           setSummaryError(getErrorMessage(error, 'Unable to load monitoring metrics. Please try again.'));
         }
       } finally {
@@ -347,6 +361,10 @@ export function MonitoringPage(): ReactElement {
     const to = toIsoTimestamp(metricInputs.to);
     if (!from || !to || from > to) {
       setMetricRangeError('Choose a valid time range where the start is not later than the end.');
+      return;
+    }
+    if (new Date(to).getTime() - new Date(from).getTime() > maximumMetricRangeMs) {
+      setMetricRangeError('Choose a time range of 90 days or less to view monitoring graphs.');
       return;
     }
     setMetricRangeError(null);
@@ -604,7 +622,7 @@ export function MonitoringPage(): ReactElement {
                 </form>
                 {loadingSummary ? <div className="panel state-panel" role="status"><span className="loader" />Loading metrics…</div>
                   : summaryError ? <div className="panel state-panel" role="alert"><p>{summaryError}</p><button className="secondary-button" type="button" onClick={() => setSummaryReload((version) => version + 1)}>Retry</button></div>
-                    : summary && summary.totalRequests === 0 ? <div className="panel empty-panel"><h2>No requests in this period</h2><p>The backend returned no matching gateway requests for {selectedApi?.name} in the selected time range.</p></div>
+                    : summary && summary.totalRequests === 0 ? <div className="panel empty-panel"><h2>No requests in this period</h2><p>The backend returned no matching gateway requests for {selectedApi?.name} in the selected time range. Time-series graphs will populate when requests pass through GateWatch.</p></div>
                       : summary && (
                         <>
                           <p className="monitoring-footnote">Backend period: {formatDate(summary.period.from)} – {formatDate(summary.period.to)}. HTTP errors are status codes 400 and above.</p>
@@ -614,6 +632,54 @@ export function MonitoringPage(): ReactElement {
                             <article className="panel monitoring-metric"><p>Error rate</p><strong>{new Intl.NumberFormat(undefined, { style: 'percent', maximumFractionDigits: 2 }).format(summary.errorRate)}</strong></article>
                             <article className="panel monitoring-metric"><p>Average recorded latency</p><strong>{summary.averageLatencyMs === null ? 'Not available' : `${summary.averageLatencyMs.toFixed(1)} ms`}</strong></article>
                           </div>
+                          {timeSeries && (
+                            <div className="monitoring-chart-grid">
+                              <MonitoringChart
+                                title="Request traffic over time"
+                                description={`Request volume per ${timeSeries.bucketSize} from persisted request-history records.`}
+                                axisLabel="Requests"
+                                points={timeSeries.buckets}
+                                bucketSize={timeSeries.bucketSize}
+                                valueFormat={(value) => Math.round(value).toLocaleString()}
+                                series={[{
+                                  key: 'requests',
+                                  label: 'Requests',
+                                  color: '#2563eb',
+                                  value: (point) => point.requestCount,
+                                }]}
+                              />
+                              <MonitoringChart
+                                title="HTTP response trends"
+                                description="Response counts per time bucket, grouped by recorded HTTP status class. Other includes out-of-range status codes."
+                                axisLabel="Responses"
+                                points={timeSeries.buckets}
+                                bucketSize={timeSeries.bucketSize}
+                                valueFormat={(value) => Math.round(value).toLocaleString()}
+                                series={[
+                                  { key: 'informational', label: '1xx informational', color: '#64748b', value: (point) => point.statusCounts.informational },
+                                  { key: 'successful', label: '2xx successful', color: '#059669', value: (point) => point.statusCounts.successful },
+                                  { key: 'redirection', label: '3xx redirection', color: '#2563eb', value: (point) => point.statusCounts.redirection },
+                                  { key: 'client-error', label: '4xx client errors', color: '#d97706', value: (point) => point.statusCounts.clientError },
+                                  { key: 'server-error', label: '5xx server errors', color: '#dc2626', value: (point) => point.statusCounts.serverError },
+                                  { key: 'other', label: 'Other / unknown', color: '#7c3aed', value: (point) => point.statusCounts.other },
+                                ]}
+                              />
+                              <MonitoringChart
+                                title="Response latency over time"
+                                description="Average of recorded response latencies in each time bucket; this is not a percentile."
+                                axisLabel="Average latency (ms)"
+                                points={timeSeries.buckets}
+                                bucketSize={timeSeries.bucketSize}
+                                valueFormat={(value) => value.toFixed(1)}
+                                series={[{
+                                  key: 'average-latency',
+                                  label: 'Average latency',
+                                  color: '#0891b2',
+                                  value: (point) => point.averageLatencyMs,
+                                }]}
+                              />
+                            </div>
+                          )}
                           <section className="panel monitoring-intro"><h2>Status-code counts</h2>
                             {Object.keys(summary.statusCodeCounts).length ? <ul className="monitoring-status-counts">{Object.entries(summary.statusCodeCounts).sort(([a], [b]) => Number(a) - Number(b)).map(([code, count]) => <li key={code}><span className={requestStatusClass(Number(code))}>{code}</span><strong>{count.toLocaleString()}</strong></li>)}</ul> : <p>No status-code counts were reported.</p>}
                           </section>

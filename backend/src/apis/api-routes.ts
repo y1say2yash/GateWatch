@@ -26,7 +26,10 @@ import {
     getRequestHistoryRecord,
     listApiRequestHistory,
 } from '../request-history/request-history-controller.js';
-import { getApiMonitoringSummary } from '../monitoring/monitoring-controller.js';
+import {
+    getApiMonitoringSummary,
+    getApiMonitoringTimeSeries,
+} from '../monitoring/monitoring-controller.js';
 
 const router = Router();
 
@@ -115,6 +118,11 @@ router.get(
 router.get(
     '/apis/:apiId/monitoring/summary',
     getApiMonitoringSummary,
+);
+
+router.get(
+    '/apis/:apiId/monitoring/timeseries',
+    getApiMonitoringTimeSeries,
 );
 
 router.get(

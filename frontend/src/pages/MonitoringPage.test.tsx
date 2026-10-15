@@ -271,6 +271,26 @@ describe('monitoring operations UI', () => {
         errorCount: 2,
         errorRate: 0.2,
       },
+    })).mockResolvedValueOnce(jsonResponse({
+      data: {
+        apiId: api.id,
+        period: { from: '2025-01-01T00:00:00.000Z', to: '2025-01-02T00:00:00.000Z' },
+        bucketSize: 'hour',
+        buckets: [{
+          bucketStart: '2025-01-01T00:00:00.000Z',
+          requestCount: 10,
+          statusCounts: {
+            informational: 0,
+            successful: 8,
+            redirection: 0,
+            clientError: 0,
+            serverError: 2,
+            other: 0,
+          },
+          latencyCount: 10,
+          averageLatencyMs: 115,
+        }],
+      },
     }));
     renderMonitoring();
     const user = userEvent.setup();
@@ -285,6 +305,17 @@ describe('monitoring operations UI', () => {
     const statusCodeCounts = screen.getByRole('heading', { name: 'Status-code counts' }).closest('section');
     if (!statusCodeCounts) throw new Error('The status-code counts section is missing.');
     expect(within(statusCodeCounts).getByText('2', { selector: 'strong' })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /Request traffic over time/ })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /HTTP response trends/ })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /Response latency over time/ })).toBeInTheDocument();
+    const responseLegend = screen.getByRole('list', { name: 'HTTP response trends legend' });
+    expect(within(responseLegend).getByText('2xx successful')).toBeInTheDocument();
+    expect(within(responseLegend).getByText('4xx client errors')).toBeInTheDocument();
+    expect(within(responseLegend).getByText('5xx server errors')).toBeInTheDocument();
+    expect(screen.getAllByText('Time (local)')).toHaveLength(3);
+    const latencyChart = screen.getByRole('heading', { name: 'Response latency over time' }).parentElement;
+    if (!latencyChart) throw new Error('The response latency chart is missing.');
+    expect(within(latencyChart).getByRole('img', { name: /not a percentile/ })).toBeInTheDocument();
     await waitFor(() => {
       const summaryUrl = mockFetch.mock.calls
         .map(([url]) => String(url))
@@ -294,7 +325,91 @@ describe('monitoring operations UI', () => {
       expect(new Date(range.get('from') ?? '').getTime()).toBeLessThanOrEqual(
         new Date(range.get('to') ?? '').getTime(),
       );
+      expect(mockFetch.mock.calls.some(([url]) => String(url).includes('/monitoring/timeseries?'))).toBe(true);
     });
+  });
+
+  it('explains empty real metrics without drawing fabricated charts', async () => {
+    setupInventory();
+    mockFetch
+      .mockResolvedValueOnce(jsonResponse({
+        data: {
+          apiId: api.id,
+          period: { from: '2025-01-01T00:00:00.000Z', to: '2025-01-02T00:00:00.000Z' },
+          totalRequests: 0,
+          statusCodeCounts: {},
+          averageLatencyMs: null,
+          errorCount: 0,
+          errorRate: 0,
+        },
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        data: {
+          apiId: api.id,
+          period: { from: '2025-01-01T00:00:00.000Z', to: '2025-01-02T00:00:00.000Z' },
+          bucketSize: 'hour',
+          buckets: [],
+        },
+      }));
+    renderMonitoring();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole('tab', { name: 'Metrics' }));
+    expect(await screen.findByRole('heading', { name: 'No requests in this period' })).toBeInTheDocument();
+    expect(screen.getByText(/graphs will populate when requests pass through GateWatch/)).toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: /Request traffic over time/ })).not.toBeInTheDocument();
+  });
+
+  it('shows a recoverable graph-data error instead of stale metrics', async () => {
+    setupInventory();
+    mockFetch
+      .mockResolvedValueOnce(jsonResponse({
+        data: {
+          apiId: api.id,
+          period: { from: '2025-01-01T00:00:00.000Z', to: '2025-01-02T00:00:00.000Z' },
+          totalRequests: 1,
+          statusCodeCounts: { '200': 1 },
+          averageLatencyMs: 10,
+          errorCount: 0,
+          errorRate: 0,
+        },
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        error: { code: 'MONITORING_TIME_SERIES_FAILED', message: 'Failed to retrieve API monitoring time series.' },
+      }, 500))
+      .mockResolvedValueOnce(jsonResponse({
+        data: {
+          apiId: api.id,
+          period: { from: '2025-01-01T00:00:00.000Z', to: '2025-01-02T00:00:00.000Z' },
+          totalRequests: 1,
+          statusCodeCounts: { '200': 1 },
+          averageLatencyMs: 10,
+          errorCount: 0,
+          errorRate: 0,
+        },
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        data: {
+          apiId: api.id,
+          period: { from: '2025-01-01T00:00:00.000Z', to: '2025-01-02T00:00:00.000Z' },
+          bucketSize: 'hour',
+          buckets: [{
+            bucketStart: '2025-01-01T00:00:00.000Z',
+            requestCount: 1,
+            statusCounts: { informational: 0, successful: 1, redirection: 0, clientError: 0, serverError: 0, other: 0 },
+            latencyCount: 1,
+            averageLatencyMs: 10,
+          }],
+        },
+      }));
+    renderMonitoring();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole('tab', { name: 'Metrics' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Failed to retrieve API monitoring time series.');
+    expect(screen.queryByText('1', { selector: 'strong' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByRole('img', { name: /Request traffic over time/ })).toBeInTheDocument();
   });
 
   it('shows the honest empty inventory state', async () => {

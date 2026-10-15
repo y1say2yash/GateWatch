@@ -690,8 +690,30 @@ contains `apiId`, `period`, `totalRequests`, `statusCodeCounts`,
 `averageLatencyMs`, `errorCount`, and `errorRate`. Errors are status codes
 greater than or equal to 400; `errorRate` is `errorCount / totalRequests`, or
 zero when no requests match. `averageLatencyMs` is `null` when the range has no
-recorded latency. Health-check history continues to use
-`GET /api/v1/apis/:apiId/health/history`.
+recorded latency.
+
+### Monitoring Time Series
+
+```
+GET /api/v1/apis/:apiId/monitoring/timeseries?from=<timestamp>&to=<timestamp>
+```
+
+Both inclusive timestamps are required and `from` must not be later than `to`.
+The maximum range is 90 days. Ranges up to 48 hours use UTC-aligned hourly
+buckets; longer ranges use UTC-aligned daily buckets. The response is wrapped
+in `data` and contains `apiId`, `period`, `bucketSize`, and an ascending
+`buckets` array. Each bucket includes `bucketStart`, `requestCount`, status
+counts for 1xx, 2xx, 3xx, 4xx, 5xx and out-of-range status codes, plus the
+count and average latency of records with a recorded response time. Empty
+time buckets are returned with zero request and status counts and a `null`
+average latency.
+
+The endpoint aggregates persisted request-history records using PostgreSQL
+time buckets and the existing `(api_id, created_at)` index. It uses the same
+authenticated session and owned-API checks as the summary endpoint. Request
+and response bodies, client identity, credentials, and upstream configuration
+are not returned. It is not a gateway-wide or infrastructure metric. Health
+history continues to use `GET /api/v1/apis/:apiId/health/history`.
 
 ### 11.9 Alerts
 

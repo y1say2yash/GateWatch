@@ -43,6 +43,33 @@ export interface MonitoringSummary {
   errorRate: number;
 }
 
+export type MonitoringBucketSize = 'hour' | 'day';
+
+export interface MonitoringTimeSeriesPoint {
+  bucketStart: string;
+  requestCount: number;
+  statusCounts: {
+    informational: number;
+    successful: number;
+    redirection: number;
+    clientError: number;
+    serverError: number;
+    other: number;
+  };
+  latencyCount: number;
+  averageLatencyMs: number | null;
+}
+
+export interface MonitoringTimeSeries {
+  apiId: string;
+  period: {
+    from: string;
+    to: string;
+  };
+  bucketSize: MonitoringBucketSize;
+  buckets: MonitoringTimeSeriesPoint[];
+}
+
 export interface ApiHealthStatus {
   apiId: string;
   healthStatus: HealthStatus;
