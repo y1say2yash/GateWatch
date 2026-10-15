@@ -608,16 +608,23 @@ Targets must be HTTP(S), contain no URL credentials or fragment, and match
 the associated API's upstream origin. Loopback, private, link-local, and
 metadata destinations and known local/container hostnames are rejected,
 except origins explicitly listed in `TEST_LOCAL_ALLOWED_ORIGINS` in
-non-production environments. DNS resolution is validated at execution time,
-redirects are disabled, and response bodies are size-limited.
+`development` or `test` environments only. The variable is an optional
+comma-separated list of exact HTTP(S) origins without credentials, path,
+query, or fragment; absent or empty configuration grants no local access.
+Allowlisting does not bypass DNS validation: mixed public/private answers are
+rejected, the selected validated address is pinned, and redirects are
+disabled. Production ignores the allowlist and rejects local, private,
+loopback, link-local, and metadata destinations. Response bodies are
+size-limited.
 The backend preserves URL query strings; credentials must not be placed in
 query parameters. The M35 UI masks saved query values and rejects commonly
 credential-named query parameters when a URL is newly entered or changed.
 
 Create returns `201`, reads and updates return `200`, and soft-delete returns
 `204`. Invalid definitions return structured `400` errors, missing or
-unowned resources return `404`, missing sessions return `401`, and missing
-credential-encryption configuration returns `503`.
+unowned resources return `404`, missing sessions return `401`, and unavailable
+credential encryption/decryption configuration returns `503` without exposing
+the configured key or stored credential values.
 
 ### Execute Test
 
@@ -657,12 +664,45 @@ audit failure and returns the completed execution result rather than inviting
 an automatic retry with a failure response. A client that loses the HTTP
 response cannot assume the execution did not occur.
 
-### Test Executions
+### Test Execution History
 
-Executions are persisted, but the current backend does not implement an
-execution-history read endpoint. The frontend therefore displays the latest
-manual result returned directly by `POST /api/v1/tests/:testId/execute` and
-does not claim to show historical runs.
+```
+GET /api/v1/tests/:testId/executions?page=1&limit=20
+```
+
+This endpoint requires an authenticated GateWatch session and returns only
+executions belonging to a test owned by the authenticated user. Missing or
+unowned tests return `404`; unauthenticated requests return `401`. `page` is
+a positive integer (default `1`); `limit` is an integer from `1` to `100`
+(default `20`). Invalid pagination returns `400`.
+
+Successful responses use the standard paginated envelope with `data` and
+`pagination` (`page`, `limit`, `total`, and `totalPages`). Each item contains
+the execution and test IDs, test name, status, trigger type, response status
+and timing metadata, start/completion timestamps, and assertion summaries
+containing only assertion type and pass/fail. Expected and actual values,
+assertion messages, upstream response bodies/headers, stored result payloads,
+and detailed error messages are never returned. The Testing page provides
+history loading, retry, and page navigation without re-executing tests.
+
+Executions remain non-idempotent: retrying `POST /execute` starts a new
+upstream test. Retrying a `GET` history request is safe and does not execute
+the test again.
+
+### Upstream URL and response safety
+
+Registered upstream URLs must use HTTP or HTTPS and cannot contain embedded
+credentials or fragments. Loopback, private, link-local, and metadata targets
+are rejected unless their exact origin is explicitly allowlisted in a
+non-production environment. Gateway requests resolve the upstream host,
+reject prohibited or mixed public/private DNS answers, and connect to the
+validated address to prevent DNS rebinding. Redirects are not followed by
+test execution; response body and request/response size caps remain enforced.
+
+The backend does not enable permissive CORS. API responses include
+`nosniff`, frame-denial, referrer, permissions, and same-origin resource
+policy headers. Production startup requires database, OAuth, and test
+credential-encryption secrets to be configured.
 
 ### 11.8 Request History
 

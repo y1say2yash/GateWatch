@@ -11,7 +11,9 @@ import {
     deleteUserTest,
     executeUserTest,
     getUserTest,
+    getUserTestExecutionHistory,
     listUserTests,
+    TestHistoryQueryError,
     TestApiNotFoundError,
     TestNotFoundError,
     updateUserTest,
@@ -21,12 +23,22 @@ import {
     TestTargetUrlError,
     TestValidationError,
 } from './test-validation.js';
+import {
+    TestCredentialDecryptionError,
+    TestCredentialEncryptionConfigurationError,
+} from './test-credential-key.js';
 
 function handleTestError(error: unknown, response: Response): void {
     if (sendAuditLogFailure(error, response)) return;
     if (error instanceof TestValidationError) {
         response.status(400).json({
             error: { code: error.code, message: error.message },
+        });
+        return;
+    }
+    if (error instanceof TestHistoryQueryError) {
+        response.status(400).json({
+            error: { code: 'INVALID_PAGINATION', message: error.message },
         });
         return;
     }
@@ -63,8 +75,11 @@ function handleTestError(error: unknown, response: Response): void {
         });
         return;
     }
-    if (error instanceof Error && error.message.includes('TEST_CREDENTIAL_ENCRYPTION_KEY')) {
-        console.error('Test credential encryption is not configured.');
+    if (
+        error instanceof TestCredentialEncryptionConfigurationError ||
+        error instanceof TestCredentialDecryptionError
+    ) {
+        console.error('Test credential encryption/decryption is unavailable.');
         response.status(503).json({
             error: {
                 code: 'TEST_CREDENTIAL_ENCRYPTION_UNAVAILABLE',
@@ -138,6 +153,35 @@ export async function getTestController(
     try {
         response.status(200).json({
             data: await getUserTest(response.locals.user.id, request.params.testId),
+        });
+    } catch (error) {
+        handleTestError(error, response);
+    }
+}
+
+export async function listTestExecutionHistoryController(
+    request: Request<{ testId: string }>,
+    response: Response,
+): Promise<void> {
+    try {
+        const history = await getUserTestExecutionHistory(
+            response.locals.user.id,
+            request.params.testId,
+            request.query.page === undefined
+                ? undefined
+                : typeof request.query.page === 'string' ? request.query.page : '',
+            request.query.limit === undefined
+                ? undefined
+                : typeof request.query.limit === 'string' ? request.query.limit : '',
+        );
+        response.status(200).json({
+            data: history.data,
+            pagination: {
+                page: history.page,
+                limit: history.pageSize,
+                total: history.total,
+                totalPages: Math.ceil(history.total / history.pageSize),
+            },
         });
     } catch (error) {
         handleTestError(error, response);

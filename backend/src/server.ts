@@ -1,6 +1,7 @@
 import app from './app.js';
 import database from './config/database.js';
 import redis from './config/redis.js';
+import { assertProductionConfiguration } from './config/production-config.js';
 import {
     startHealthScheduler,
     stopHealthScheduler,
@@ -10,6 +11,7 @@ const PORT = Number(process.env.BACKEND_PORT ?? 4000);
 
 async function startServer() {
     try {
+        assertProductionConfiguration();
         await database.raw('SELECT 1');
         console.log('PostgreSQL connected');
 

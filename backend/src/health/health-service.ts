@@ -10,6 +10,10 @@ import {
     persistHealthCheck,
 } from './health-repository.js';
 import { classifyHealthCheck } from './health-classification.js';
+import {
+    HealthCheckRequestTimeoutError,
+    performHealthCheckRequest,
+} from './health-upstream.js';
 
 import type {
     HealthCheckConfig,
@@ -162,43 +166,27 @@ async function performAttempt(
     config: HealthCheckConfig,
 ): Promise<AttemptResult> {
     const startedAt = Date.now();
-    const abortController = new AbortController();
-    const timeout = setTimeout(
-        () => abortController.abort(),
-        Math.min(config.timeoutMs, DEFAULT_TIMEOUT_MS),
-    );
-
     try {
-        const response = await fetch(url, {
-            method: 'GET',
-            redirect: 'manual',
-            signal: abortController.signal,
-            headers: {
-                accept: '*/*',
-                'user-agent': 'GateWatch-Health-Check',
-            },
-        });
+        const status = await performHealthCheckRequest(
+            url,
+            Math.min(config.timeoutMs, DEFAULT_TIMEOUT_MS),
+        );
         const responseTimeMs = Date.now() - startedAt;
         const successful =
-            response.status >= config.expectedStatusMin &&
-            response.status <= config.expectedStatusMax;
-
-        if (response.body) {
-            void response.body.cancel().catch(() => undefined);
-        }
+            status >= config.expectedStatusMin &&
+            status <= config.expectedStatusMax;
 
         return {
-            httpStatus: response.status,
+            httpStatus: status,
             responseTimeMs,
             errorMessage: successful
                 ? null
-                : `Upstream returned HTTP ${response.status}.`,
+                : `Upstream returned HTTP ${status}.`,
             successful,
         };
     } catch (error) {
         const timedOut =
-            abortController.signal.aborted ||
-            (error instanceof Error && error.name === 'AbortError');
+            error instanceof HealthCheckRequestTimeoutError;
 
         return {
             httpStatus: null,
@@ -208,8 +196,6 @@ async function performAttempt(
                 : 'Unable to connect to upstream API.',
             successful: false,
         };
-    } finally {
-        clearTimeout(timeout);
     }
 }
 

@@ -1,4 +1,12 @@
 import type { Knex } from 'knex';
+import { fileURLToPath } from 'node:url';
+
+const migrationsDirectory = fileURLToPath(
+    new URL('../database/migrations', import.meta.url),
+);
+const seedsDirectory = fileURLToPath(
+    new URL('../database/seeds', import.meta.url),
+);
 
 const config: Record<string, Knex.Config> = {
     development: {
@@ -11,11 +19,11 @@ const config: Record<string, Knex.Config> = {
             password: process.env.POSTGRES_PASSWORD ?? 'gatewatch_dev',
         },
         migrations: {
-            directory: '/database/migrations',
+            directory: migrationsDirectory,
             extension: 'ts',
         },
         seeds: {
-            directory: '/database/seeds',
+            directory: seedsDirectory,
             extension: 'ts',
         },
     },

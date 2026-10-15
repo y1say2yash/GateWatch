@@ -1,10 +1,17 @@
+import { lookup as dnsLookup } from 'node:dns/promises';
 import http from 'node:http';
 import https from 'node:https';
+import { isIP } from 'node:net';
 
 import type { Request, Response } from 'express';
 
 import type { Api } from '../apis/api-types.js';
 import type { ApiRoute } from '../routes/route-types.js';
+import {
+    areResolvedAddressesSafe,
+    isDevelopmentLocalOriginAllowed,
+    isNonPublicAddress,
+} from '../tests/test-network-policy.js';
 
 const MAX_REQUEST_BODY_BYTES = 10 * 1024 * 1024;
 const MAX_RESPONSE_BODY_BYTES = 10 * 1024 * 1024;
@@ -49,6 +56,11 @@ export class UpstreamResponseTooLargeError extends Error {
         super('Upstream response exceeds the maximum allowed size.');
         this.name = 'UpstreamResponseTooLargeError';
     }
+}
+
+interface ResolvedUpstream {
+    address: string;
+    family: 4 | 6;
 }
 
 function getUpstreamTimeout(): number {
@@ -130,6 +142,55 @@ function buildUpstreamTarget(
     return upstreamUrl;
 }
 
+export async function resolveSafeUpstream(
+    target: URL,
+    lookupAddresses: (
+        hostname: string,
+    ) => Promise<readonly { address: string; family: number }[]> = async (hostname) =>
+        dnsLookup(hostname, { all: true, verbatim: true }),
+): Promise<ResolvedUpstream> {
+    if (!['http:', 'https:'].includes(target.protocol) ||
+        target.username ||
+        target.password ||
+        target.hash) {
+        throw new UpstreamConnectionError();
+    }
+
+    const hostname = target.hostname.replace(/^\[|\]$/g, '');
+    const localOriginAllowed = isDevelopmentLocalOriginAllowed(target);
+    const timeoutMs = Math.min(getUpstreamTimeout(), 5_000);
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+    try {
+        const timedOut = new Promise<never>((_resolve, reject) => {
+            timeoutHandle = setTimeout(() => reject(new UpstreamTimeoutError()), timeoutMs);
+        });
+        const addresses = await Promise.race([
+            isIP(hostname) !== 0
+                ? Promise.resolve([{ address: hostname, family: isIP(hostname) }])
+                : lookupAddresses(hostname),
+            timedOut,
+        ]);
+        if (!areResolvedAddressesSafe(
+            addresses.map(({ address }) => address),
+            localOriginAllowed,
+        )) {
+            throw new UpstreamConnectionError();
+        }
+        const selected = addresses[0];
+        if (!selected || isNonPublicAddress(selected.address) !== localOriginAllowed) {
+            throw new UpstreamConnectionError();
+        }
+        return { address: selected.address, family: selected.family as 4 | 6 };
+    } catch (error) {
+        if (error instanceof UpstreamTimeoutError || error instanceof UpstreamConnectionError) {
+            throw error;
+        }
+        throw new UpstreamConnectionError();
+    } finally {
+        if (timeoutHandle) clearTimeout(timeoutHandle);
+    }
+}
+
 function copyRequestHeaders(
     request: Request,
     target: URL,
@@ -185,6 +246,11 @@ function copyResponseHeaders(
         if (
             HOP_BY_HOP_HEADERS.has(lowerName) ||
             lowerName === 'x-request-id' ||
+            lowerName === 'x-content-type-options' ||
+            lowerName === 'x-frame-options' ||
+            lowerName === 'referrer-policy' ||
+            lowerName === 'permissions-policy' ||
+            lowerName === 'cross-origin-resource-policy' ||
             value === undefined
         ) {
             continue;
@@ -210,6 +276,52 @@ function getContentLength(
         : null;
 }
 
+function readUnknownLengthRequestBody(
+    request: Request,
+): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+        const chunks: Buffer[] = [];
+        let bytesRead = 0;
+        let oversized = false;
+
+        const cleanup = (): void => {
+            request.removeListener('data', onData);
+            request.removeListener('end', onEnd);
+            request.removeListener('error', onError);
+            request.removeListener('aborted', onAborted);
+        };
+        const onData = (chunk: Buffer): void => {
+            if (oversized) return;
+            bytesRead += chunk.length;
+            if (bytesRead > MAX_REQUEST_BODY_BYTES) {
+                oversized = true;
+                chunks.length = 0;
+                reject(new RequestBodyTooLargeError());
+                request.resume();
+                return;
+            }
+            chunks.push(chunk);
+        };
+        const onEnd = (): void => {
+            cleanup();
+            if (!oversized) resolve(Buffer.concat(chunks, bytesRead));
+        };
+        const onError = (error: Error): void => {
+            cleanup();
+            if (!oversized) reject(error);
+        };
+        const onAborted = (): void => {
+            cleanup();
+            if (!oversized) reject(new UpstreamConnectionError());
+        };
+
+        request.on('data', onData);
+        request.once('end', onEnd);
+        request.once('error', onError);
+        request.once('aborted', onAborted);
+    });
+}
+
 export async function proxyGatewayRequest(
     request: Request,
     response: Response,
@@ -224,8 +336,8 @@ export async function proxyGatewayRequest(
         getQueryString(request),
     );
 
-    const requestContentLength =
-        Number(request.headers['content-length'] ?? 0);
+    const contentLengthHeader = request.headers['content-length'];
+    const requestContentLength = Number(contentLengthHeader ?? 0);
 
     if (
         Number.isFinite(requestContentLength) &&
@@ -233,6 +345,11 @@ export async function proxyGatewayRequest(
     ) {
         throw new RequestBodyTooLargeError();
     }
+
+    const bufferedRequestBody = contentLengthHeader === undefined
+        ? await readUnknownLengthRequestBody(request)
+        : null;
+    const destination = await resolveSafeUpstream(target);
 
     const transport =
         target.protocol === 'https:'
@@ -258,16 +375,22 @@ export async function proxyGatewayRequest(
             }
         };
 
+        const hostname = target.hostname.replace(/^\[|\]$/g, '');
+        const upstreamOptions: http.RequestOptions = {
+            protocol: target.protocol,
+            hostname: destination.address,
+            family: destination.family,
+            port: target.port ? Number(target.port) : undefined,
+            method: request.method,
+            path: `${target.pathname}${target.search}`,
+            headers: copyRequestHeaders(request, target),
+            timeout: getUpstreamTimeout(),
+            ...(target.protocol === 'https:' && isIP(hostname) === 0
+                ? { servername: hostname }
+                : {}),
+        };
         const upstreamRequest = transport.request(
-            target,
-            {
-                method: request.method,
-                headers: copyRequestHeaders(
-                    request,
-                    target,
-                ),
-                timeout: getUpstreamTimeout(),
-            },
+            upstreamOptions,
             (upstreamResponse) => {
                 const contentLength =
                     getContentLength(
@@ -366,45 +489,50 @@ export async function proxyGatewayRequest(
             },
         );
 
-        request.on(
-            'data',
-            (chunk: Buffer) => {
-                requestBodyBytes += chunk.length;
+        if (bufferedRequestBody !== null) {
+            if (bufferedRequestBody.length > 0) {
+                upstreamRequest.write(bufferedRequestBody);
+            }
+            upstreamRequest.end();
+        } else {
+            request.on(
+                'data',
+                (chunk: Buffer) => {
+                    if (settled) {
+                        return;
+                    }
+                    requestBodyBytes += chunk.length;
 
-                if (
-                    requestBodyBytes >
-                    MAX_REQUEST_BODY_BYTES
-                ) {
-                    request.destroy(
-                        new RequestBodyTooLargeError(),
-                    );
+                    if (
+                        requestBodyBytes >
+                        MAX_REQUEST_BODY_BYTES
+                    ) {
+                        upstreamRequest.destroy();
+                        finishReject(
+                            new RequestBodyTooLargeError(),
+                        );
+                        request.resume();
+                        return;
+                    }
 
+                    upstreamRequest.write(chunk);
+                },
+            );
+
+            request.on(
+                'end',
+                () => {
+                    upstreamRequest.end();
+                },
+            );
+
+            request.on(
+                'error',
+                (error) => {
                     upstreamRequest.destroy();
-
-                    finishReject(
-                        new RequestBodyTooLargeError(),
-                    );
-
-                    return;
-                }
-
-                upstreamRequest.write(chunk);
-            },
-        );
-
-        request.on(
-            'end',
-            () => {
-                upstreamRequest.end();
-            },
-        );
-
-        request.on(
-            'error',
-            (error) => {
-                upstreamRequest.destroy();
-                finishReject(error);
-            },
-        );
+                    finishReject(error);
+                },
+            );
+        }
     });
 }

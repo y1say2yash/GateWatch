@@ -4,6 +4,7 @@ import {
     findOwnedApi,
     findOwnedTest,
     findStoredAuthentication,
+    listOwnedTestExecutionHistory,
     listOwnedApiTests,
     softDeleteOwnedTest,
     updateOwnedTest,
@@ -14,7 +15,12 @@ import {
 } from './test-credentials.js';
 import { executeTestDefinition, TestApiDisabledError } from './test-execution.js';
 import { validateTestInput } from './test-validation.js';
-import type { ApiTest, TestExecutionResult, TestInput } from './test-types.js';
+import type {
+    ApiTest,
+    TestExecutionHistoryItem,
+    TestExecutionResult,
+    TestInput,
+} from './test-types.js';
 
 export class TestNotFoundError extends Error {
     constructor() {
@@ -27,6 +33,13 @@ export class TestApiNotFoundError extends Error {
     constructor() {
         super('API not found.');
         this.name = 'TestApiNotFoundError';
+    }
+}
+
+export class TestHistoryQueryError extends Error {
+    constructor() {
+        super('Page must be a positive integer and page size must be between 1 and 100.');
+        this.name = 'TestHistoryQueryError';
     }
 }
 
@@ -58,6 +71,35 @@ export async function getUserTest(
     const test = await findOwnedTest(userId, testId);
     if (!test) throw new TestNotFoundError();
     return test;
+}
+
+export async function getUserTestExecutionHistory(
+    userId: string,
+    testId: string,
+    rawPage?: string,
+    rawPageSize?: string,
+): Promise<{
+    data: TestExecutionHistoryItem[];
+    page: number;
+    pageSize: number;
+    total: number;
+    hasNextPage: boolean;
+}> {
+    const page = rawPage === undefined ? 1 : Number(rawPage);
+    const pageSize = rawPageSize === undefined ? 20 : Number(rawPageSize);
+    if (!Number.isSafeInteger(page) || page < 1 ||
+        !Number.isSafeInteger(pageSize) || pageSize < 1 || pageSize > 100) {
+        throw new TestHistoryQueryError();
+    }
+
+    const result = await listOwnedTestExecutionHistory(userId, testId, page, pageSize);
+    if (!result) throw new TestNotFoundError();
+    return {
+        ...result,
+        page,
+        pageSize,
+        hasNextPage: page * pageSize < result.total,
+    };
 }
 
 export async function createUserTest(

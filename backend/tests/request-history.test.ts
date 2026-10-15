@@ -37,6 +37,8 @@ let gateway: Server;
 let management: Server;
 let gatewayPort: number;
 let upstreamPort: number;
+const priorNodeEnv = process.env.NODE_ENV;
+const priorAllowedOrigins = process.env.TEST_LOCAL_ALLOWED_ORIGINS;
 
 function listen(server: Server): Promise<number> {
     return new Promise((resolve, reject) => {
@@ -90,6 +92,8 @@ before(async () => {
         response.end(JSON.stringify({ secret: 'upstream-response-secret' }));
     });
     upstreamPort = await listen(upstream);
+    process.env.NODE_ENV = 'test';
+    process.env.TEST_LOCAL_ALLOWED_ORIGINS = `http://127.0.0.1:${upstreamPort}`;
 
     const app = express();
     app.use(gatewayRoutes);
@@ -166,6 +170,10 @@ after(async () => {
         await database('users').where({ id: otherUserId }).delete();
     }
     await database.destroy();
+    if (priorNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = priorNodeEnv;
+    if (priorAllowedOrigins === undefined) delete process.env.TEST_LOCAL_ALLOWED_ORIGINS;
+    else process.env.TEST_LOCAL_ALLOWED_ORIGINS = priorAllowedOrigins;
 });
 
 test('records upstream responses without request or response secrets', async () => {

@@ -8,6 +8,10 @@ import type {
     TestAuthentication,
     TestAuthenticationType,
 } from './test-types.js';
+import {
+    getTestCredentialEncryptionKey,
+    TestCredentialDecryptionError,
+} from './test-credential-key.js';
 
 interface EncryptedSecret {
     iv: string;
@@ -78,19 +82,13 @@ function parseStoredAuthentication(value: unknown): StoredAuthentication | null 
     };
 }
 
-function getEncryptionKey(): Buffer {
-    const configured = process.env.TEST_CREDENTIAL_ENCRYPTION_KEY;
-    if (!configured || !/^[0-9a-fA-F]{64}$/.test(configured)) {
-        throw new Error(
-            'TEST_CREDENTIAL_ENCRYPTION_KEY must be configured as 64 hexadecimal characters to store test credentials.',
-        );
-    }
-    return Buffer.from(configured, 'hex');
-}
-
 function encryptSecret(value: string): EncryptedSecret {
     const iv = randomBytes(12);
-    const cipher = createCipheriv('aes-256-gcm', getEncryptionKey(), iv);
+    const cipher = createCipheriv(
+        'aes-256-gcm',
+        getTestCredentialEncryptionKey(process.env.TEST_CREDENTIAL_ENCRYPTION_KEY),
+        iv,
+    );
     const ciphertext = Buffer.concat([
         cipher.update(value, 'utf8'),
         cipher.final(),
@@ -103,16 +101,21 @@ function encryptSecret(value: string): EncryptedSecret {
 }
 
 function decryptSecret(secret: EncryptedSecret): string {
-    const iv = Buffer.from(secret.iv, 'hex');
-    const tag = Buffer.from(secret.tag, 'hex');
-    const ciphertext = Buffer.from(secret.ciphertext, 'hex');
-    const decipher = createDecipheriv('aes-256-gcm', getEncryptionKey(), iv);
-    decipher.setAuthTag(tag);
-    const output = Buffer.concat([
-        decipher.update(ciphertext),
-        decipher.final(),
-    ]);
-    return output.toString('utf8');
+    const key = getTestCredentialEncryptionKey(process.env.TEST_CREDENTIAL_ENCRYPTION_KEY);
+    try {
+        const iv = Buffer.from(secret.iv, 'hex');
+        const tag = Buffer.from(secret.tag, 'hex');
+        const ciphertext = Buffer.from(secret.ciphertext, 'hex');
+        const decipher = createDecipheriv('aes-256-gcm', key, iv);
+        decipher.setAuthTag(tag);
+        const output = Buffer.concat([
+            decipher.update(ciphertext),
+            decipher.final(),
+        ]);
+        return output.toString('utf8');
+    } catch {
+        throw new TestCredentialDecryptionError();
+    }
 }
 
 export function decryptAuthentication(

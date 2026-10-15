@@ -320,9 +320,10 @@ returned by management APIs.
 The M35 frontend provides an authenticated interface to create, list, update,
 soft-delete, and manually execute these definitions. The interface keeps
 credentials in the dedicated authentication fields and shows safe assertion
-summaries without rendering upstream response values or bodies. The current
-backend has no execution-history read endpoint, so the interface can show a
-run result only while it remains in the current page session.
+summaries without rendering upstream response values or bodies. Users can
+view owner-scoped, paginated execution history with safe metadata and
+assertion pass/fail summaries; loading history can be retried without
+re-executing the upstream test.
 
 ### FR-TEST-002 — Manual Test Execution (M24)
 

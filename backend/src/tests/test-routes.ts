@@ -8,6 +8,7 @@ import {
     deleteTestController,
     executeTestController,
     getTestController,
+    listTestExecutionHistoryController,
     listTestsController,
     updateTestController,
 } from './test-controller.js';
@@ -54,6 +55,12 @@ router.post(
     requireAuthentication,
     validateResourceId,
     createTestController,
+);
+router.get(
+    '/tests/:testId/executions',
+    requireAuthentication,
+    validateResourceId,
+    listTestExecutionHistoryController,
 );
 router.get(
     '/tests/:testId',

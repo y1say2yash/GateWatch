@@ -60,6 +60,8 @@ let releaseHeldResponse: ServerResponse | null = null;
 let onHeldRequest: (() => void) | null = null;
 let timeoutRequestCount = 0;
 let onTimeoutRetries: (() => void) | null = null;
+const priorNodeEnv = process.env.NODE_ENV;
+const priorAllowedOrigins = process.env.TEST_LOCAL_ALLOWED_ORIGINS;
 
 before(async () => {
     server = createServer((request, response) => {
@@ -86,6 +88,8 @@ before(async () => {
         server.listen(0, '127.0.0.1', resolve);
     });
     serverPort = (server.address() as AddressInfo).port;
+    process.env.NODE_ENV = 'test';
+    process.env.TEST_LOCAL_ALLOWED_ORIGINS = `http://127.0.0.1:${serverPort}`;
 
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const [owner] = await database<{ id: string }>('users')
@@ -140,6 +144,10 @@ after(async () => {
         await database('users').where({ id: otherUserId }).delete();
     }
     await database.destroy();
+    if (priorNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = priorNodeEnv;
+    if (priorAllowedOrigins === undefined) delete process.env.TEST_LOCAL_ALLOWED_ORIGINS;
+    else process.env.TEST_LOCAL_ALLOWED_ORIGINS = priorAllowedOrigins;
 });
 
 test('classifies an expected, timely response as healthy', () => {

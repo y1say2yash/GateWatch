@@ -464,10 +464,12 @@ lifecycle state. This does not imply that the API is currently healthy.
 
 ### Test Execution History
 
-Executions are persisted by the backend, but no execution-history read
-endpoint is currently implemented. The Testing page displays the result
-returned by a manual run for the current page session only; it does not
-represent that result as a history list.
+The Testing page can request `GET /api/v1/tests/:testId/executions` for
+historical runs. The authenticated backend enforces test ownership and
+pagination. History can be retried and paged without starting another test
+execution. The UI displays only status, timing/response metadata, trigger
+type, and assertion type/pass-fail summaries; expected/actual values,
+assertion messages, response bodies, and detailed error messages are omitted.
 
 ### CI/CD Test Flow
 

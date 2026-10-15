@@ -173,6 +173,69 @@ describe('API testing UI', () => {
     expect(mockFetch.mock.calls.some(([url]) => String(url).includes('/executions'))).toBe(false);
   });
 
+  it('loads safe paginated execution history and can retry after an error', async () => {
+    const user = userEvent.setup();
+    const historyItem = {
+      id: 'execution-1',
+      testId: testDefinition.id,
+      testName: testDefinition.name,
+      status: 'FAILED',
+      triggerType: 'MANUAL',
+      responseStatus: 503,
+      responseTimeMs: 46,
+      durationMs: 49,
+      startedAt: '2025-01-02T00:00:00.000Z',
+      completedAt: '2025-01-02T00:00:01.000Z',
+      assertions: [{ type: 'JSON_BODY', pass: false }],
+      expected: 'hidden-expected-value',
+      actual: 'hidden-response-value',
+    };
+    queueResponses([
+      ...inventoryResponses(),
+      jsonResponse({ data: [testDefinition] }),
+      jsonResponse({ error: { message: 'History temporarily unavailable.' } }, 503),
+      jsonResponse({
+        data: [historyItem],
+        pagination: { page: 1, limit: 10, total: 11, totalPages: 2 },
+      }),
+      jsonResponse({
+        data: [{ ...historyItem, id: 'execution-2' }],
+        pagination: { page: 2, limit: 10, total: 11, totalPages: 2 },
+      }),
+    ]);
+    renderTestingPage();
+
+    await user.click(await screen.findByRole('button', { name: 'Execution history' }));
+    expect(await screen.findByText('History temporarily unavailable.')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Retry history' }));
+    expect(await screen.findByText('JSON BODY: failed')).toBeInTheDocument();
+    expect(screen.queryByText('hidden-expected-value')).not.toBeInTheDocument();
+    expect(screen.queryByText('hidden-response-value')).not.toBeInTheDocument();
+    expect(screen.getByText('Page 1 of 2 · 11 runs')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Older' }));
+    expect(await screen.findByText('Page 2 of 2 · 11 runs')).toBeInTheDocument();
+    expect(mockFetch).toHaveBeenCalledWith(
+      '/api/v1/tests/test-1/executions?page=2&limit=10',
+      expect.objectContaining({ credentials: 'include' }),
+    );
+  });
+
+  it('shows a distinct empty state when a test has no execution history', async () => {
+    const user = userEvent.setup();
+    queueResponses([
+      ...inventoryResponses(),
+      jsonResponse({ data: [testDefinition] }),
+      jsonResponse({
+        data: [],
+        pagination: { page: 1, limit: 10, total: 0, totalPages: 0 },
+      }),
+    ]);
+    renderTestingPage();
+
+    await user.click(await screen.findByRole('button', { name: 'Execution history' }));
+    expect(await screen.findByText('No executions have been recorded for this test.')).toBeInTheDocument();
+  });
+
   it('retains a configured authentication secret as a masked field and does not display it', async () => {
     const user = userEvent.setup();
     const existing = {

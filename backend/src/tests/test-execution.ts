@@ -6,6 +6,10 @@ import { request as httpsRequest } from 'node:https';
 
 import { decryptAuthentication } from './test-credentials.js';
 import {
+    TestCredentialDecryptionError,
+    TestCredentialEncryptionConfigurationError,
+} from './test-credential-key.js';
+import {
     areResolvedAddressesSafe,
     isDevelopmentLocalOriginAllowed,
     isNonPublicAddress,
@@ -444,7 +448,13 @@ export async function executeOwnedTest(
     const decryptedAuth = (() => {
         try {
             return decryptAuthentication(storedAuthentication);
-        } catch {
+        } catch (error) {
+            if (
+                error instanceof TestCredentialEncryptionConfigurationError ||
+                error instanceof TestCredentialDecryptionError
+            ) {
+                throw error;
+            }
             throw new TestExecutionError('Stored test credentials are invalid or missing.');
         }
     })();
@@ -535,7 +545,13 @@ export async function executeTestDefinition(
     try {
         const execution = await executeOwnedTest(test, storedAuthentication);
         return execution;
-    } catch {
+    } catch (error) {
+        if (
+            error instanceof TestCredentialEncryptionConfigurationError ||
+            error instanceof TestCredentialDecryptionError
+        ) {
+            throw error;
+        }
         return {
             passed: false,
             status: 'ERROR',

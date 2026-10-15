@@ -2,6 +2,10 @@ import type {
     CreateApiInput,
     UpdateApiInput,
 } from './api-types.js';
+import {
+    isDevelopmentLocalOriginAllowed,
+    isLocalHostname,
+} from '../tests/test-network-policy.js';
 
 export class ApiValidationError extends Error {
     constructor(
@@ -88,6 +92,18 @@ function validateUpstreamUrl(value: unknown): string {
         throw new ApiValidationError(
             'INVALID_UPSTREAM_URL',
             'Upstream URL must use HTTP or HTTPS.',
+        );
+    }
+    if (url.username || url.password || url.hash) {
+        throw new ApiValidationError(
+            'INVALID_UPSTREAM_URL',
+            'Upstream URL cannot contain credentials or a fragment.',
+        );
+    }
+    if (isLocalHostname(url.hostname) && !isDevelopmentLocalOriginAllowed(url)) {
+        throw new ApiValidationError(
+            'INVALID_UPSTREAM_URL',
+            'Upstream URL cannot target a private, loopback, link-local, or metadata host.',
         );
     }
 

@@ -104,11 +104,15 @@ export function isNonPublicAddress(address: string): boolean {
     const isDocumentation2001Db8 = (value >> 96n) === 0x20010db8n;
     const isSixToFour = (value >> 112n) === 0x2002n;
     const isDocumentation3fff = (value >> 108n) === 0x3fff0n;
+    const isNat64WellKnownPrefix = (value >> 32n) === 0x64ff9b00000000n;
+    const isNat64LocalUsePrefix = (value >> 80n) === 0x64ff9b0001n;
     return !isGlobalUnicast ||
         isDocumentationOrSpecial2001 ||
         isDocumentation2001Db8 ||
         isSixToFour ||
-        isDocumentation3fff;
+        isDocumentation3fff ||
+        isNat64WellKnownPrefix ||
+        isNat64LocalUsePrefix;
 }
 
 export function isLocalHostname(hostname: string): boolean {
