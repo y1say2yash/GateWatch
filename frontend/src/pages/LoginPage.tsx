@@ -19,6 +19,13 @@ export function LoginPage(): ReactElement {
   return (
     <div className="login-page">
       <div className="login-card">
+        <img
+          className="login-logo"
+          src="/assets/branding/gatewatch-logo.svg"
+          alt="GateWatch"
+          width="256"
+          height="64"
+        />
         <div className="eyebrow">Authorize access</div>
         <h1>Sign in to GateWatch</h1>
         <p>

@@ -1,4 +1,4 @@
-import type { ReactElement, ReactNode } from 'react';
+import { useState, type ReactElement, type ReactNode } from 'react';
 import { NavLink } from 'react-router-dom';
 
 import { useAuth } from '../../features/auth/auth-context';
@@ -26,10 +26,15 @@ export function AppShell({ user, children }: AppShellProps): ReactElement {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand-block">
-          <div className="brand-mark">GW</div>
+          <img
+            className="brand-logo"
+            src="/assets/branding/gatewatch-icon.svg"
+            alt=""
+            aria-hidden="true"
+          />
           <div>
             <div className="brand-name">GateWatch</div>
-            <div className="brand-subtitle">Gateway Control</div>
+            <div className="brand-subtitle">API Gateway &amp; Monitoring</div>
           </div>
         </div>
 
@@ -49,9 +54,7 @@ export function AppShell({ user, children }: AppShellProps): ReactElement {
         </nav>
 
         <div className="sidebar-footer">
-          <div className="avatar-badge" aria-label="User profile">
-            {user.githubUsername.slice(0, 2).toUpperCase()}
-          </div>
+          <UserAvatar key={user.avatarUrl ?? user.id} user={user} />
           <div>
             <p className="user-name">{user.githubUsername}</p>
             <p className="user-role">{user.isAdmin ? 'Administrator' : 'Member'}</p>
@@ -73,5 +76,23 @@ export function AppShell({ user, children }: AppShellProps): ReactElement {
         {children}
       </main>
     </div>
+  );
+}
+
+export function UserAvatar({ user }: { user: AuthenticatedUser }): ReactElement {
+  const initials = user.githubUsername.trim().slice(0, 2).toUpperCase() || 'GW';
+  const [failed, setFailed] = useState(false);
+
+  return (
+    <span className="avatar-badge" role="img" aria-label={`${user.githubUsername} profile picture`} title={user.githubUsername}>
+      {user.avatarUrl && !failed ? (
+        <img
+          src={user.avatarUrl}
+          alt=""
+          onError={() => setFailed(true)}
+          referrerPolicy="no-referrer"
+        />
+      ) : initials}
+    </span>
   );
 }

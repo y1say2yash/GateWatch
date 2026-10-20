@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactElement } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 
 import { ApiError, apiRequest } from '../lib/api';
 import type { Project } from '../types/management';
@@ -12,7 +12,8 @@ export function ProjectsPage(): ReactElement {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
-  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [searchParams] = useSearchParams();
+  const [showCreateForm, setShowCreateForm] = useState(searchParams.get('create') === '1');
   const [formError, setFormError] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');

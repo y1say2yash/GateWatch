@@ -53,11 +53,39 @@ const route = {
   deletedAt: null,
 };
 
-function setupInventory(): void {
+function setupInventory(includeDefaultMetrics = true): void {
   mockFetch
     .mockResolvedValueOnce(jsonResponse({ data: [project] }))
     .mockResolvedValueOnce(jsonResponse({ data: [api] }))
     .mockResolvedValueOnce(jsonResponse({ data: [route] }));
+  if (includeDefaultMetrics) {
+    mockFetch
+      .mockResolvedValueOnce(jsonResponse({
+        data: {
+          apiId: api.id,
+          period: { from: '2025-01-01T00:00:00.000Z', to: '2025-01-02T00:00:00.000Z' },
+          totalRequests: 1,
+          statusCodeCounts: { '200': 1 },
+          averageLatencyMs: 10,
+          errorCount: 0,
+          errorRate: 0,
+        },
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        data: {
+          apiId: api.id,
+          period: { from: '2025-01-01T00:00:00.000Z', to: '2025-01-02T00:00:00.000Z' },
+          bucketSize: 'hour',
+          buckets: [{
+            bucketStart: '2025-01-01T00:00:00.000Z',
+            requestCount: 1,
+            statusCounts: { informational: 0, successful: 1, redirection: 0, clientError: 0, serverError: 0, other: 0 },
+            latencyCount: 1,
+            averageLatencyMs: 10,
+          }],
+        },
+      }));
+  }
 }
 
 function renderMonitoring(): void {
@@ -84,10 +112,14 @@ describe('monitoring operations UI', () => {
   it('maps owned routes into gateway paths without exposing upstream configuration', async () => {
     setupInventory();
     renderMonitoring();
+    const user = userEvent.setup();
 
+    await user.click(await screen.findByRole('tab', { name: 'Gateway' }));
     expect(await screen.findByRole('heading', { name: 'Gateway routes' })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /Configured routes by project/ })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /Configured routes by method/ })).toBeInTheDocument();
     expect(screen.getByText('/p/inventory/items')).toBeInTheDocument();
-    expect(screen.getByText('GET')).toBeInTheDocument();
+    expect(within(screen.getByRole('table', { name: 'Configured gateway routes' })).getByText('GET')).toBeInTheDocument();
     expect(screen.getByText('Required')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Catalog' })).toHaveAttribute('href', '/apis/api-1');
     expect(screen.queryByText('https://private-upstream.example.test')).not.toBeInTheDocument();
@@ -147,6 +179,7 @@ describe('monitoring operations UI', () => {
 
     await user.click(await screen.findByRole('tab', { name: 'Requests' }));
     expect(await screen.findByText('/items/42')).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /Response classes on this page/ })).toBeInTheDocument();
     expect(screen.getByText('Page 1 of 2 · 21 matching requests')).toBeInTheDocument();
     await user.selectOptions(screen.getByLabelText('Method'), 'GET');
     await user.type(screen.getByLabelText('Exact HTTP status'), '500');
@@ -178,6 +211,25 @@ describe('monitoring operations UI', () => {
       .mockResolvedValueOnce(jsonResponse({
         data: {
           apiId: api.id,
+          period: { from: '2025-01-01T00:00:00.000Z', to: '2025-01-02T00:00:00.000Z' },
+          totalRequests: 1,
+          statusCodeCounts: { '200': 1 },
+          averageLatencyMs: 10,
+          errorCount: 0,
+          errorRate: 0,
+        },
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        data: {
+          apiId: api.id,
+          period: { from: '2025-01-01T00:00:00.000Z', to: '2025-01-02T00:00:00.000Z' },
+          bucketSize: 'hour',
+          buckets: [],
+        },
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        data: {
+          apiId: api.id,
           healthStatus: 'DEGRADED',
           lastHealthCheckAt: '2025-01-04T00:00:00.000Z',
           latestCheck: {
@@ -201,6 +253,8 @@ describe('monitoring operations UI', () => {
 
     await user.click(await screen.findByRole('tab', { name: 'API health' }));
     expect(await screen.findByText('DEGRADED')).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /Latest API health states/ })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /Latest recorded response latency/ })).toBeInTheDocument();
     expect(screen.getByText('DISABLED')).toBeInTheDocument();
     expect(screen.getByText('Disabled')).toBeInTheDocument();
     expect(screen.getByText('HTTP 200')).toBeInTheDocument();
@@ -221,6 +275,8 @@ describe('monitoring operations UI', () => {
     }));
     await user.click(screen.getByRole('tab', { name: 'Health history' }));
     expect(await screen.findByText('Retry succeeded after an initial failed attempt.')).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /Health-check response time/ })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /Health-check outcomes/ })).toBeInTheDocument();
     expect(screen.getByText('Scheduled')).toBeInTheDocument();
   });
 
@@ -236,6 +292,12 @@ describe('monitoring operations UI', () => {
       .mockResolvedValueOnce(jsonResponse({ data: [] }))
       .mockResolvedValueOnce(jsonResponse({ data: [] }))
       .mockResolvedValueOnce(jsonResponse({ data: [] }))
+      .mockResolvedValueOnce(jsonResponse({
+        data: { apiId: 'api-healthy', period: { from: null, to: null }, totalRequests: 0, statusCodeCounts: {}, averageLatencyMs: null, errorCount: 0, errorRate: 0 },
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        data: { apiId: 'api-healthy', period: { from: '2025-01-01T00:00:00.000Z', to: '2025-01-02T00:00:00.000Z' }, bucketSize: 'hour', buckets: [] },
+      }))
       .mockResolvedValueOnce(jsonResponse({
         data: { apiId: 'api-healthy', healthStatus: 'HEALTHY', lastHealthCheckAt: '2025-01-04T00:00:00.000Z', latestCheck: { id: 'check-healthy', apiId: 'api-healthy', status: 'HEALTHY', responseTimeMs: 200, httpStatus: 200, attemptCount: 1, errorMessage: null, isManual: false, checkedAt: '2025-01-04T00:00:00.000Z' } },
       }))
@@ -260,7 +322,7 @@ describe('monitoring operations UI', () => {
   });
 
   it('uses the backend aggregate for the selected API and time range', async () => {
-    setupInventory();
+    setupInventory(false);
     mockFetch.mockResolvedValueOnce(jsonResponse({
       data: {
         apiId: api.id,
@@ -293,18 +355,22 @@ describe('monitoring operations UI', () => {
       },
     }));
     renderMonitoring();
-    const user = userEvent.setup();
 
-    await user.click(await screen.findByRole('tab', { name: 'Metrics' }));
+    expect(await screen.findByRole('tab', { name: 'Metrics' })).toHaveAttribute('aria-selected', 'true');
     expect(await screen.findByText('10', { selector: 'strong' })).toBeInTheDocument();
     const errorMetric = screen.getByText('HTTP errors (≥400)').parentElement;
     if (!errorMetric) throw new Error('The HTTP errors metric card is missing.');
     expect(within(errorMetric).getByText('2', { selector: 'strong' })).toBeInTheDocument();
     expect(screen.getByText('20%', { selector: 'strong' })).toBeInTheDocument();
     expect(screen.getByText('115.0 ms', { selector: 'strong' })).toBeInTheDocument();
-    const statusCodeCounts = screen.getByRole('heading', { name: 'Status-code counts' }).closest('section');
-    if (!statusCodeCounts) throw new Error('The status-code counts section is missing.');
-    expect(within(statusCodeCounts).getByText('2', { selector: 'strong' })).toBeInTheDocument();
+    const statusCodeChart = screen.getByRole('img', { name: /HTTP status-code counts/ });
+    expect(statusCodeChart).toBeInTheDocument();
+    const chartGrid = statusCodeChart.closest('.monitoring-chart-grid');
+    if (!chartGrid) throw new Error('The metrics chart grid is missing.');
+    expect(chartGrid.querySelectorAll('.monitoring-chart-panel')).toHaveLength(4);
+    const statusCodeLegend = screen.getByRole('list', { name: 'HTTP status-code counts legend' });
+    expect(within(statusCodeLegend).getByText('HTTP 200: 8')).toBeInTheDocument();
+    expect(within(statusCodeLegend).getByText('HTTP 500: 2')).toBeInTheDocument();
     expect(screen.getByRole('img', { name: /Request traffic over time/ })).toBeInTheDocument();
     expect(screen.getByRole('img', { name: /HTTP response trends/ })).toBeInTheDocument();
     expect(screen.getByRole('img', { name: /Response latency over time/ })).toBeInTheDocument();
@@ -326,11 +392,17 @@ describe('monitoring operations UI', () => {
         new Date(range.get('to') ?? '').getTime(),
       );
       expect(mockFetch.mock.calls.some(([url]) => String(url).includes('/monitoring/timeseries?'))).toBe(true);
+      const defaultFrom = new Date((screen.getByLabelText('From') as HTMLInputElement).value).getTime();
+      const defaultTo = new Date((screen.getByLabelText('To') as HTMLInputElement).value).getTime();
+      expect(defaultTo - defaultFrom).toBeGreaterThanOrEqual(24 * 60 * 60 * 1_000 - 60_000);
+      expect(defaultTo - defaultFrom).toBeLessThan(24 * 60 * 60 * 1_000 + 60_000);
+      expect(new Date(range.get('from') ?? '').getTime()).toBe(defaultFrom);
+      expect(new Date(range.get('to') ?? '').getTime()).toBe(defaultTo);
     });
   });
 
   it('explains empty real metrics without drawing fabricated charts', async () => {
-    setupInventory();
+    setupInventory(false);
     mockFetch
       .mockResolvedValueOnce(jsonResponse({
         data: {
@@ -352,16 +424,14 @@ describe('monitoring operations UI', () => {
         },
       }));
     renderMonitoring();
-    const user = userEvent.setup();
 
-    await user.click(await screen.findByRole('tab', { name: 'Metrics' }));
     expect(await screen.findByRole('heading', { name: 'No requests in this period' })).toBeInTheDocument();
     expect(screen.getByText(/graphs will populate when requests pass through GateWatch/)).toBeInTheDocument();
     expect(screen.queryByRole('img', { name: /Request traffic over time/ })).not.toBeInTheDocument();
   });
 
   it('shows a recoverable graph-data error instead of stale metrics', async () => {
-    setupInventory();
+    setupInventory(false);
     mockFetch
       .mockResolvedValueOnce(jsonResponse({
         data: {
@@ -402,11 +472,10 @@ describe('monitoring operations UI', () => {
           }],
         },
       }));
-    renderMonitoring();
-    const user = userEvent.setup();
+      renderMonitoring();
+      const user = userEvent.setup();
 
-    await user.click(await screen.findByRole('tab', { name: 'Metrics' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Failed to retrieve API monitoring time series.');
+      expect(await screen.findByRole('alert')).toHaveTextContent('Failed to retrieve API monitoring time series.');
     expect(screen.queryByText('1', { selector: 'strong' })).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Retry' }));
     expect(await screen.findByRole('img', { name: /Request traffic over time/ })).toBeInTheDocument();
@@ -430,6 +499,27 @@ describe('monitoring operations UI', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Unable to reach the GateWatch server.');
     await user.click(screen.getByRole('button', { name: 'Retry' }));
     expect(await screen.findByRole('heading', { name: 'No projects yet' })).toBeInTheDocument();
+  });
+
+  it('plots alert operations only from available per-API alert configurations', async () => {
+    setupInventory();
+    mockFetch.mockResolvedValueOnce(jsonResponse({
+      data: [
+        { id: 'alert-1', apiId: api.id, name: 'Catalog down', type: 'API_DOWN', configuration: {}, enabled: true, runtimeState: 'TRIGGERED', triggeredAt: '2025-01-02T00:00:00.000Z', recoveredAt: null, createdAt: '2025-01-01T00:00:00.000Z', updatedAt: '2025-01-02T00:00:00.000Z', deletedAt: null },
+        { id: 'alert-2', apiId: api.id, name: 'Catalog latency', type: 'LATENCY', configuration: { thresholdMs: 500, windowSeconds: 60 }, enabled: false, runtimeState: 'INACTIVE', triggeredAt: null, recoveredAt: null, createdAt: '2025-01-01T00:00:00.000Z', updatedAt: '2025-01-02T00:00:00.000Z', deletedAt: null },
+      ],
+    }));
+    renderMonitoring();
+    const user = userEvent.setup();
+
+    await screen.findByRole('img', { name: /Request traffic over time/ });
+    await user.click(screen.getByRole('tab', { name: 'Operations' }));
+
+    expect(await screen.findByRole('img', { name: /Alert runtime state/ })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /Alert configurations by type/ })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Manage alert configurations' })).toHaveAttribute('href', '/alerts');
+    expect(screen.getByRole('heading', { name: 'Related operational views' }).parentElement)
+      .toHaveTextContent(/infrastructure logs are not exposed/i);
   });
 
   it('recovers from request-history errors and reports an empty result without fake counts', async () => {
