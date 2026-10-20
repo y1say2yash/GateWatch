@@ -229,10 +229,10 @@ GitHub OAuth callback:
 Demo APIs use separate local ports:
 
 ```
-Product API:
+Order API:
 <http://localhost:3001>
 
-Order API:
+Product API:
 <http://localhost:3002>
 
 User API:
@@ -321,6 +321,88 @@ must satisfy the local policy, mixed public/private answers are rejected, the
 selected address is pinned for the request, and test-runner redirects are
 disabled. The example lists the Docker demo API origins for local
 development; remove entries you do not need.
+
+## Demo data seed
+
+The demo seed requires a migrated GateWatch PostgreSQL database and the UUID
+of an existing account whose status is `ACTIVE` and `deleted_at` is null. It
+does not create an account or change account privileges. To find the signed-in
+account UUID, open the authenticated `GET /api/v1/auth/me` response; its user
+object is in `data.id`. The endpoint requires the normal GateWatch session.
+
+For the standard Docker Compose environment, create/configure `.env` from
+`.env.example`, set a non-empty local `POSTGRES_PASSWORD`, then start the
+database, Redis, backend, and demo APIs and apply migrations:
+
+```bash
+docker compose up -d postgres redis product-api order-api user-api backend
+docker compose exec backend npm run db:migrate
+docker compose exec backend npm run db:seed:demo -- --user-id <EXISTING_ACTIVE_USER_UUID>
+```
+
+Inside Compose, the seed uses `product-api:3002`, `order-api:3001`, and
+`user-api:3003`. These Docker service names and container ports are reachable
+from the backend; `localhost` would point to the backend container instead.
+The `.env.example` allowlist already includes these demo API origins.
+
+When running the seed from the host instead, configure the standard PostgreSQL
+connection variables and set `DEMO_PRODUCT_API_URL`,
+`DEMO_ORDER_API_URL`, and `DEMO_USER_API_URL` to the host-reachable origins.
+Those exact origins must also be present in `TEST_LOCAL_ALLOWED_ORIGINS` for
+the existing API/test URL safety checks. For example, local demo API URLs use
+the ports above on `127.0.0.1`. Run the same npm command from `backend`:
+
+```bash
+npm run db:seed:demo -- --user-id <EXISTING_ACTIVE_USER_UUID>
+```
+
+The seed creates three owner-scoped projects with stable, user-derived slugs:
+
+- **Product Management** — Product API and Product Categories API.
+- **Order Management** — Order API.
+- **User Management** — User API.
+
+The separate Product Categories registration is required by the current
+gateway base-path model. The seed adds gateway routes for the supported
+business endpoints, default rate-limit and health-check configurations,
+deterministic tests for the existing health and business endpoints, and
+API-down/error-rate alert configurations. It then attempts genuine health
+checks, test executions, and GET requests through the running local gateway,
+including a deliberately expected not-found order request. Gateway URLs use
+`/p/<project-slug>/<service-path>`, matching the backend's
+`/p/:projectSlug{/*gatewayPath}` route. Product and category requests use the
+Product Management slug; order and user requests use their respective project
+slugs.
+
+Start the demo APIs and backend before seeding for successful activity. A
+health-check or test attempt against a stopped service can record a real
+failure; gateway history is skipped if the local backend is unavailable.
+Health checks use the existing resolver, which combines the API base path and
+configured health path, then assigns that combined value to `URL.pathname`.
+The WHATWG URL pathname setter resolves `/products/../health` (and equivalent
+Order/User paths) to `/health`; the seed verifies this resolution before
+writing health configurations. It does not rewrite an existing health-check
+setting.
+
+The command is safe to rerun: deterministic project slugs and the
+`gatewatch:demo-seed:v1` markers identify its resources. It creates no duplicate
+projects, registrations, routes, tests, alerts, rate limits, or health-check
+configurations. An existing single-project seed installation is migrated by
+moving only its marker-matching APIs and their gateway routes to the three
+new projects; modified upstream settings are not overwritten. The now-empty
+legacy project is soft-deleted; if unrelated APIs remain in it, it is kept
+intact. Conflicting or soft-deleted seed identifiers fail with an actionable
+message. Customized routes, tests, alerts, rate limits, health checks, and
+disabled resources are preserved and reported instead of reset.
+
+Project, API, route, rate-limit, health-check, test, alert, and genuine
+operational records persist in GateWatch PostgreSQL. Product/order/user
+business data remains owned by the demo services' in-memory stores and is
+never copied to GateWatch. The seed never fabricates request, health, test, or
+alert history; alert configurations are created, but alert transitions only
+appear when the normal application mechanisms evaluate a real condition.
+Reruns can create additional genuine recent activity. The workflow requires
+no AWS, SNS, scheduled tests, or CI/CD configuration.
 
 Production startup fails unless `POSTGRES_PASSWORD`, `GITHUB_CLIENT_ID`,
 `GITHUB_CLIENT_SECRET`, and a valid `TEST_CREDENTIAL_ENCRYPTION_KEY` are

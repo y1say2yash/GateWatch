@@ -12,7 +12,8 @@
     "db:migrate": "knex --knexfile knexfile.ts migrate:latest",
     "db:rollback": "knex --knexfile knexfile.ts migrate:rollback",
     "db:status": "knex --knexfile knexfile.ts migrate:list",
-    "db:seed": "knex --knexfile knexfile.ts seed:run"
+    "db:seed": "knex --knexfile knexfile.ts seed:run",
+    "db:seed:demo": "tsx scripts/seed-demo.ts"
   },
   "dependencies": {
     "cookie-parser": "^1.4.7",
