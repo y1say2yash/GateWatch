@@ -115,6 +115,10 @@ Feature-specific UI, logic, types, and supporting code should remain within the 
 
 Reusable components belong in `components/`.
 
+GateWatch branding is stored in `frontend/public/assets/branding/`. Use `gatewatch-icon.svg` for compact application marks and the favicon, and `gatewatch-logo.svg` for the horizontal wordmark. Keep active references under `/assets/branding/` aligned with the files in `frontend/public`.
+
+The dashboard contains operational summaries and lists, not graphs. Monitoring opens on request metrics and loads backend aggregates for the last 24 hours by default. Its API selector and inclusive date range use the existing per-API monitoring endpoints; time-series granularity is chosen by the backend (hourly up to 48 hours, daily beyond that). Other Monitoring charts use configured routes, the selected request-history page, API health, bounded health history, and alert configurations as their data sources; configured counts are not traffic metrics. Infrastructure logs and a cross-resource test-execution feed are not exposed by the current application API. Account settings display fields returned by `auth/me`; unsupported personal preferences are not persisted.
+
 ---
 
 ## 3.2 Backend Structure

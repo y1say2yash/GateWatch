@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -60,12 +60,54 @@ describe('GateWatch application', () => {
   });
 
   it('restores a valid session and shows the dashboard', async () => {
-    mockFetch.mockResolvedValueOnce(authenticatedResponse());
+    mockFetch
+      .mockResolvedValueOnce(authenticatedResponse())
+      .mockResolvedValueOnce(jsonResponse({ data: [] }));
 
     render(<App />);
 
     expect(await screen.findByRole('heading', { name: 'Dashboard' })).toBeInTheDocument();
     expect(screen.getByText('gatewatch-user')).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'gatewatch-user profile picture' })).toHaveTextContent('GA');
+  });
+
+  it('loads the sidebar avatar from auth/me and falls back when the image fails', async () => {
+    mockFetch
+      .mockResolvedValueOnce(jsonResponse({
+        data: { ...currentUser, avatarUrl: 'https://avatars.example.test/gatewatch.png' },
+      }))
+      .mockResolvedValueOnce(jsonResponse({ data: [] }));
+
+    render(<App />);
+
+    const avatar = await screen.findByRole('img', { name: 'gatewatch-user profile picture' });
+    const image = avatar.querySelector('img');
+    expect(image).toHaveAttribute('src', 'https://avatars.example.test/gatewatch.png');
+    if (!image) throw new Error('The avatar image was not rendered.');
+    fireEvent.error(image);
+    expect(avatar).toHaveTextContent('GA');
+    expect(avatar.querySelector('img')).not.toBeInTheDocument();
+  });
+
+  it('shows supported account settings and gracefully omits an unavailable email', async () => {
+    window.history.replaceState(null, '', '/settings');
+    mockFetch.mockResolvedValueOnce(jsonResponse({
+      data: { ...currentUser, email: null, avatarUrl: 'https://avatars.example.test/settings.png' },
+    }));
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'gatewatch-user' })).toBeInTheDocument();
+    expect(screen.getByText('GitHub')).toBeInTheDocument();
+    expect(screen.getByText('ACTIVE')).toBeInTheDocument();
+    const profile = screen.getByRole('heading', { name: 'gatewatch-user' }).closest('section');
+    if (!profile) throw new Error('The settings profile section is missing.');
+    expect(within(profile).getByRole('img', { name: 'gatewatch-user profile picture' }).querySelector('img'))
+      .toHaveAttribute('src', 'https://avatars.example.test/settings.png');
+    expect(screen.queryByText('Email')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
+    expect(screen.queryByLabelText(/password/i)).not.toBeInTheDocument();
   });
 
   it('redirects an unauthenticated protected route to login', async () => {
@@ -126,6 +168,7 @@ describe('GateWatch application', () => {
   it('clears protected UI and explains when logout cannot be confirmed', async () => {
     mockFetch
       .mockResolvedValueOnce(authenticatedResponse())
+      .mockResolvedValueOnce(jsonResponse({ data: [] }))
       .mockResolvedValueOnce(
         jsonResponse(
           { error: { code: 'LOGOUT_FAILED', message: 'Failed to log out.' } },
@@ -155,6 +198,7 @@ describe('GateWatch application', () => {
   it('returns to login after the backend confirms logout', async () => {
     mockFetch
       .mockResolvedValueOnce(authenticatedResponse())
+      .mockResolvedValueOnce(jsonResponse({ data: [] }))
       .mockResolvedValueOnce({ ok: true, status: 204 } as Response);
 
     render(<App />);

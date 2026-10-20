@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 64" role="img" aria-labelledby="title">
+  <title id="title">GateWatch</title>
+  <g transform="translate(4 4)">
+    <rect width="56" height="56" rx="14" fill="#102a43"/>
+    <path d="M17 19h22v10H28v8h11v8H17z" fill="none" stroke="#eaf4ff" stroke-linejoin="round" stroke-width="4"/>
+    <path d="M39 19h7v8M39 37h7v8" fill="none" stroke="#2dd4bf" stroke-linecap="round" stroke-linejoin="round" stroke-width="3"/>
+    <circle cx="47" cy="19" r="3" fill="#60a5fa"/>
+    <circle cx="47" cy="45" r="3" fill="#60a5fa"/>
+  </g>
+  <text x="74" y="41" fill="#102a43" font-family="Inter, Segoe UI, sans-serif" font-size="30" font-weight="700" letter-spacing=".2">GateWatch</text>
+</svg>

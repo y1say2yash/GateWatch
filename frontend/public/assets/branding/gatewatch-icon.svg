@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">GateWatch icon</title>
+  <rect width="64" height="64" rx="16" fill="#102a43"/>
+  <path d="M17 18h25v11H29v7h13v10H17z" fill="none" stroke="#eaf4ff" stroke-linejoin="round" stroke-width="4"/>
+  <path d="M42 18h7v9M42 36h7v10" fill="none" stroke="#2dd4bf" stroke-linecap="round" stroke-linejoin="round" stroke-width="3"/>
+  <circle cx="50" cy="18" r="3" fill="#60a5fa"/>
+  <circle cx="50" cy="46" r="3" fill="#60a5fa"/>
+</svg>
