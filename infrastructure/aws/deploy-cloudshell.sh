@@ -12,6 +12,27 @@ for command_name in aws git curl jq openssl tar; do
 done
 aws sts get-caller-identity --region "$REGION" >/dev/null
 ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text --region "$REGION")"
+EC2_INSTANCE_TYPE="${GATEWATCH_EC2_INSTANCE_TYPE:-}"
+if [[ -n "$EC2_INSTANCE_TYPE" ]]; then
+    ELIGIBLE_TYPE="$(aws ec2 describe-instance-types --instance-types "$EC2_INSTANCE_TYPE" --filters Name=free-tier-eligible,Values=true --query 'InstanceTypes[0].InstanceType' --output text --region "$REGION")"
+    if [[ "$ELIGIBLE_TYPE" != "$EC2_INSTANCE_TYPE" ]]; then
+        echo "$EC2_INSTANCE_TYPE is not eligible under this account's Free Tier restrictions." >&2
+        exit 1
+    fi
+else
+    for candidate in t3.small t3.micro t2.micro; do
+        ELIGIBLE_TYPE="$(aws ec2 describe-instance-types --instance-types "$candidate" --filters Name=free-tier-eligible,Values=true --query 'InstanceTypes[0].InstanceType' --output text --region "$REGION")"
+        if [[ "$ELIGIBLE_TYPE" == "$candidate" ]]; then
+            EC2_INSTANCE_TYPE="$candidate"
+            break
+        fi
+    done
+    if [[ -z "$EC2_INSTANCE_TYPE" ]]; then
+        echo "No supported Free Tier eligible x86 instance type was found in $REGION." >&2
+        exit 1
+    fi
+fi
+printf 'Using EC2 type %s (eligible for this account).\n' "$EC2_INSTANCE_TYPE"
 VPC_ID="$(aws ec2 describe-vpcs --filters Name=isDefault,Values=true --query 'Vpcs[0].VpcId' --output text --region "$REGION")"
 if [[ -z "$VPC_ID" || "$VPC_ID" == "None" ]]; then
     echo "The selected region must have a default VPC." >&2
@@ -160,6 +181,11 @@ RDS_ENDPOINT='__RDS_ENDPOINT__'
 
 if ! command -v aws >/dev/null 2>&1; then dnf install -y awscli-2; fi
 dnf install -y docker git jq curl
+fallocate -l 2G /swapfile
+chmod 600 /swapfile
+mkswap /swapfile
+swapon /swapfile
+grep -q '^/swapfile ' /etc/fstab || echo '/swapfile swap swap defaults 0 0' >> /etc/fstab
 systemctl enable --now docker
 systemctl enable --now amazon-ssm-agent || true
 mkdir -p /usr/local/lib/docker/cli-plugins
@@ -266,7 +292,7 @@ sed -i \
 
 INSTANCE_ID="$(aws ec2 run-instances \
     --image-id "$AMI_ID" \
-    --instance-type t3.medium \
+    --instance-type "$EC2_INSTANCE_TYPE" \
     --iam-instance-profile "Name=$PROFILE_NAME" \
     --network-interfaces "AssociatePublicIpAddress=true,DeviceIndex=0,Groups=[$EC2_SG_ID],SubnetId=${SUBNET_IDS[0]}" \
     --block-device-mappings '[{"DeviceName":"/dev/xvda","Ebs":{"VolumeSize":30,"VolumeType":"gp3","DeleteOnTermination":true}}]' \
