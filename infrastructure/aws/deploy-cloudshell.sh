@@ -20,7 +20,7 @@ if [[ -n "$EC2_INSTANCE_TYPE" ]]; then
         exit 1
     fi
 else
-    for candidate in t3.small t3.micro t2.micro; do
+    for candidate in t3.micro t2.micro; do
         ELIGIBLE_TYPE="$(aws ec2 describe-instance-types --instance-types "$candidate" --filters Name=free-tier-eligible,Values=true --query 'InstanceTypes[0].InstanceType' --output text --region "$REGION")"
         if [[ "$ELIGIBLE_TYPE" == "$candidate" ]]; then
             EC2_INSTANCE_TYPE="$candidate"
@@ -32,7 +32,7 @@ else
         exit 1
     fi
 fi
-printf 'Using EC2 type %s (eligible for this account).\n' "$EC2_INSTANCE_TYPE"
+printf 'Using EC2 type %s (AWS marks it Free Tier eligible; account usage and plan limits still apply).\n' "$EC2_INSTANCE_TYPE"
 VPC_ID="$(aws ec2 describe-vpcs --filters Name=isDefault,Values=true --query 'Vpcs[0].VpcId' --output text --region "$REGION")"
 if [[ -z "$VPC_ID" || "$VPC_ID" == "None" ]]; then
     echo "The selected region must have a default VPC." >&2
