@@ -68,12 +68,21 @@ RDS_ID=""
 BUCKET_NAME=""
 ALLOCATION_ID=""
 PARAMETER_NAME=""
+EC2_SG_ID=""
+RDS_SG_ID=""
+DB_SUBNET_GROUP=""
+FUNCTION_NAME=""
+OAC_NAME=""
 on_error() {
     local line="$1"
     echo "Deployment stopped at line $line. AWS resources already created are not removed automatically." >&2
     printf 'Known resources: instance=%s rds=%s distribution=%s bucket=%s eip=%s parameter=%s\n' \
         "${INSTANCE_ID:-none}" "${RDS_ID:-none}" "${DISTRIBUTION_ID:-none}" \
         "${BUCKET_NAME:-none}" "${ALLOCATION_ID:-none}" "${PARAMETER_NAME:-none}" >&2
+    printf 'Supporting resources: stack=%s role=%s profile=%s ec2-sg=%s rds-sg=%s db-subnet-group=%s cloudfront-function=%s oac=%s\n' \
+        "${STACK_NAME:-none}" "${ROLE_NAME:-none}" "${PROFILE_NAME:-none}" \
+        "${EC2_SG_ID:-none}" "${RDS_SG_ID:-none}" "${DB_SUBNET_GROUP:-none}" \
+        "${FUNCTION_NAME:-none}" "${OAC_NAME:-none}" >&2
 }
 trap 'on_error $LINENO' ERR
 
@@ -322,7 +331,11 @@ jq -n '{Comment:"GateWatch SPA route fallback",Runtime:"cloudfront-js-2.0"}' > "
 aws cloudfront create-function --name "$FUNCTION_NAME" --function-config "file://$WORK_DIR/function-config.json" --function-code "fileb://$WORK_DIR/spa-function.js" >/dev/null
 FUNCTION_ETAG="$(aws cloudfront describe-function --name "$FUNCTION_NAME" --query ETag --output text)"
 aws cloudfront publish-function --name "$FUNCTION_NAME" --if-match "$FUNCTION_ETAG" >/dev/null
-FUNCTION_ARN="$(aws cloudfront describe-function --name "$FUNCTION_NAME" --query FunctionSummary.FunctionARN --output text)"
+FUNCTION_ARN="$(aws cloudfront describe-function --name "$FUNCTION_NAME" --stage LIVE --query FunctionSummary.FunctionMetadata.FunctionARN --output text)"
+if [[ -z "$FUNCTION_ARN" || "$FUNCTION_ARN" == "None" ]]; then
+    echo "CloudFront did not return a published function ARN; stopping before distribution creation." >&2
+    exit 1
+fi
 
 jq -n \
     --arg caller "$STACK_NAME" \
