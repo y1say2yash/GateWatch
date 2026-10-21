@@ -38,6 +38,14 @@ if [[ -z "$VPC_ID" || "$VPC_ID" == "None" ]]; then
     echo "The selected region must have a default VPC." >&2
     exit 1
 fi
+DNS_SUPPORT="$(aws ec2 describe-vpc-attribute --vpc-id "$VPC_ID" --attribute enableDnsSupport --query 'EnableDnsSupport.Value' --output text --region "$REGION")"
+if [[ "$DNS_SUPPORT" != "True" && "$DNS_SUPPORT" != "true" ]]; then
+    aws ec2 modify-vpc-attribute --vpc-id "$VPC_ID" --enable-dns-support Value=true --region "$REGION"
+fi
+DNS_HOSTNAMES="$(aws ec2 describe-vpc-attribute --vpc-id "$VPC_ID" --attribute enableDnsHostnames --query 'EnableDnsHostnames.Value' --output text --region "$REGION")"
+if [[ "$DNS_HOSTNAMES" != "True" && "$DNS_HOSTNAMES" != "true" ]]; then
+    aws ec2 modify-vpc-attribute --vpc-id "$VPC_ID" --enable-dns-hostnames Value=true --region "$REGION"
+fi
 
 SUBNET_ROWS="$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=$VPC_ID" Name=default-for-az,Values=true --query 'Subnets[*].[SubnetId,AvailabilityZone]' --output text --region "$REGION")"
 mapfile -t SUBNET_IDS < <(awk '{print $1}' <<< "$SUBNET_ROWS" | sort -u)
@@ -311,7 +319,18 @@ INSTANCE_ID="$(aws ec2 run-instances \
 aws ec2 wait instance-running --instance-ids "$INSTANCE_ID" --region "$REGION"
 ALLOCATION_ID="$(aws ec2 allocate-address --domain vpc --query AllocationId --output text --region "$REGION")"
 aws ec2 associate-address --instance-id "$INSTANCE_ID" --allocation-id "$ALLOCATION_ID" --region "$REGION" >/dev/null
-EC2_ORIGIN="$(aws ec2 describe-addresses --allocation-ids "$ALLOCATION_ID" --query 'Addresses[0].PublicDnsName' --output text --region "$REGION")"
+EC2_ORIGIN=""
+for attempt in {1..15}; do
+    EC2_ORIGIN="$(aws ec2 describe-addresses --allocation-ids "$ALLOCATION_ID" --query 'Addresses[0].PublicDnsName' --output text --region "$REGION")"
+    if [[ "$EC2_ORIGIN" =~ ^[[:alnum:]-]+(\.[[:alnum:]-]+)+$ ]]; then break; fi
+    sleep 2
+done
+if [[ ! "$EC2_ORIGIN" =~ ^[[:alnum:]-]+(\.[[:alnum:]-]+)+$ ]]; then
+    EC2_PUBLIC_IP="$(aws ec2 describe-addresses --allocation-ids "$ALLOCATION_ID" --query 'Addresses[0].PublicIp' --output text --region "$REGION")"
+    echo "AWS did not return a valid EC2 public DNS hostname for Elastic IP $EC2_PUBLIC_IP (value: $EC2_ORIGIN)." >&2
+    echo "Stopping before CloudFront creation. Check enableDnsSupport/enableDnsHostnames on VPC $VPC_ID." >&2
+    exit 1
+fi
 
 OAC_NAME="${STACK_NAME}-oac"
 OAC_ID="$(aws cloudfront create-origin-access-control --origin-access-control-config "Name=$OAC_NAME,Description=Private S3 access for GateWatch,SigningProtocol=sigv4,SigningBehavior=always,OriginAccessControlOriginType=s3" --query OriginAccessControl.Id --output text)"
