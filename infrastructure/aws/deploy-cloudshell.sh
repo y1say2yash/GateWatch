@@ -197,7 +197,7 @@ REPOSITORY_URL='__REPOSITORY_URL__'
 RDS_ENDPOINT='__RDS_ENDPOINT__'
 
 if ! command -v aws >/dev/null 2>&1; then dnf install -y awscli-2; fi
-dnf install -y docker git jq curl
+dnf install -y docker git jq
 fallocate -l 2G /swapfile
 chmod 600 /swapfile
 mkswap /swapfile
