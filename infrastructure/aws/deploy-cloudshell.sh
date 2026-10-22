@@ -319,9 +319,27 @@ INSTANCE_ID="$(aws ec2 run-instances \
 aws ec2 wait instance-running --instance-ids "$INSTANCE_ID" --region "$REGION"
 ALLOCATION_ID="$(aws ec2 allocate-address --domain vpc --query AllocationId --output text --region "$REGION")"
 aws ec2 associate-address --instance-id "$INSTANCE_ID" --allocation-id "$ALLOCATION_ID" --region "$REGION" >/dev/null
+NETWORK_INTERFACE_ID="$(aws ec2 describe-addresses --allocation-ids "$ALLOCATION_ID" --query 'Addresses[0].NetworkInterfaceId' --output text --region "$REGION")"
+if [[ -z "$NETWORK_INTERFACE_ID" || "$NETWORK_INTERFACE_ID" == "None" ]]; then
+    echo "AWS did not associate the Elastic IP with an EC2 network interface." >&2
+    exit 1
+fi
+aws ec2 modify-public-ip-dns-name-options \
+    --network-interface-id "$NETWORK_INTERFACE_ID" \
+    --hostname-type public-ipv4-dns-name \
+    --region "$REGION" >/dev/null
 EC2_ORIGIN=""
 for attempt in {1..15}; do
-    EC2_ORIGIN="$(aws ec2 describe-addresses --allocation-ids "$ALLOCATION_ID" --query 'Addresses[0].PublicDnsName' --output text --region "$REGION")"
+    EC2_ORIGIN="$(aws ec2 describe-network-interfaces \
+        --network-interface-ids "$NETWORK_INTERFACE_ID" \
+        --query 'NetworkInterfaces[0].PublicIpDnsNameOptions.PublicIpv4DnsName' \
+        --output text --region "$REGION")"
+    if [[ -z "$EC2_ORIGIN" || "$EC2_ORIGIN" == "None" ]]; then
+        EC2_ORIGIN="$(aws ec2 describe-network-interfaces \
+            --network-interface-ids "$NETWORK_INTERFACE_ID" \
+            --query 'NetworkInterfaces[0].Association.PublicDnsName' \
+            --output text --region "$REGION")"
+    fi
     if [[ "$EC2_ORIGIN" =~ ^[[:alnum:]-]+(\.[[:alnum:]-]+)+$ ]]; then break; fi
     sleep 2
 done
