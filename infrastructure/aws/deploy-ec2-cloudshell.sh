@@ -171,17 +171,33 @@ ENV
 chmod 600 .env
 
 COMPOSE_PARALLEL_LIMIT=1 docker-compose build
-docker-compose up -d
+docker-compose up -d postgres redis order-api product-api user-api
+
+postgres_ready=0
+for attempt in {1..60}; do
+    if docker-compose exec -T postgres pg_isready >/dev/null 2>&1; then postgres_ready=1; break; fi
+    sleep 5
+done
+if [[ "$postgres_ready" != 1 ]]; then echo "PostgreSQL did not become ready"; exit 1; fi
+
+redis_ready=0
+for attempt in {1..30}; do
+    if docker-compose exec -T redis redis-cli ping 2>/dev/null | grep -q PONG; then redis_ready=1; break; fi
+    sleep 2
+done
+if [[ "$redis_ready" != 1 ]]; then echo "Redis did not become ready"; exit 1; fi
+
 migration_ok=0
 for attempt in {1..30}; do
-    if docker-compose exec -T -e NODE_ENV=development backend npm run db:migrate; then migration_ok=1; break; fi
+    if docker-compose run --rm --no-deps -e NODE_ENV=development backend npm run db:migrate; then migration_ok=1; break; fi
     sleep 10
 done
 if [[ "$migration_ok" != 1 ]]; then echo "Database migrations failed"; exit 1; fi
+docker-compose up -d
 
 healthy=0
 for attempt in {1..90}; do
-    if curl -fsS http://127.0.0.1/api/health >/dev/null; then healthy=1; break; fi
+    if curl -fsS http://127.0.0.1/api/health >/dev/null && curl -fsS http://127.0.0.1/ >/dev/null; then healthy=1; break; fi
     sleep 10
 done
 if [[ "$healthy" != 1 ]]; then
