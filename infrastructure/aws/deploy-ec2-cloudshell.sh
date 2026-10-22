@@ -132,6 +132,16 @@ systemctl enable --now amazon-ssm-agent || true
 mkdir -p /usr/local/bin
 curl -fsSL https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64 -o /usr/local/bin/docker-compose
 chmod +x /usr/local/bin/docker-compose
+ mkdir -p /usr/local/lib/docker/cli-plugins
+ case "$(uname -m)" in
+     x86_64) BUILDX_ARCH=amd64 ;;
+     aarch64|arm64) BUILDX_ARCH=arm64 ;;
+     *) echo "Unsupported EC2 architecture: $(uname -m)"; exit 1 ;;
+ esac
+ BUILDX_VERSION="$(curl -fsSL https://api.github.com/repos/docker/buildx/releases/latest | jq -r .tag_name)"
+ curl -fsSL "https://github.com/docker/buildx/releases/download/${BUILDX_VERSION}/buildx-${BUILDX_VERSION}.linux-${BUILDX_ARCH}" -o /usr/local/lib/docker/cli-plugins/docker-buildx
+ chmod +x /usr/local/lib/docker/cli-plugins/docker-buildx
+ docker buildx version
 
 git clone --depth 1 "$REPOSITORY_URL" /opt/gatewatch
 cd /opt/gatewatch
